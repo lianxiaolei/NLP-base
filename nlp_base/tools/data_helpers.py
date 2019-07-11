@@ -2,18 +2,18 @@
 
 import numpy as np
 import re
-import jieba
+# import jieba
 import os
 import itertools
 from collections import Counter
 from tensorflow.contrib import learn
 from gensim.models import Word2Vec
 import re
-import jieba.analyse
+# import jieba.analyse
 import pandas as pd
 import sklearn.model_selection
 
-jieba.analyse.set_stop_words('/Users/imperatore/PycharmProjects/nlp-base/conf/stopwords.txt')
+# jieba.analyse.set_stop_words('/Users/imperatore/PycharmProjects/nlp-base/conf/stopwords.txt')
 
 
 def clean_str(string):
@@ -200,9 +200,30 @@ def batch_iter(data, batch_size, num_epoch, shuffle=True):
       yield shuffle_data[start_index: end_index]
 
 
+def split_sentence(fname_in, fname_out, has_tag=False):
+  fout = open(fname_out, 'a', encoding='utf-8')
+
+  with open(fname_in, 'r', encoding='utf8') as fin:
+    lines = fin.readlines()
+    i = 0
+    for line in lines:
+      i += 1
+      phrases = line.split(' ')
+      for phrase in phrases:
+        if has_tag:
+          words = phrase.split('/')[0]
+        else:
+          words = phrase
+        fout.write(' '.join(words.split('_')))  # 词汇用空格分开
+      if i % 10000 == 0:
+        print('Current %s lines.' % i)
+
 if __name__ == '__main__':
-  x_train, y_train, x_test, y_test, vocab_processor = \
-    load_train_dev_data('../../dataset/cnews.train.txt', '../../dataset/cnews.test.txt')
-  print(x_train.shape, y_train.shape)
-  print(x_test.shape, y_test.shape)
-  print('😒😒😒😒')
+  # x_train, y_train, x_test, y_test, vocab_processor = \
+  #   load_train_dev_data('../../dataset/cnews.train.txt', '../../dataset/cnews.test.txt')
+  # print(x_train.shape, y_train.shape)
+  # print(x_test.shape, y_test.shape)
+  # print('😒😒😒😒')
+  split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
+                 '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
+  print('done')
