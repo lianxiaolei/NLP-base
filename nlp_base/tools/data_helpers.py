@@ -2,16 +2,17 @@
 
 import numpy as np
 import re
-# import jieba
+import jieba
 import os
 import itertools
 from collections import Counter
 from tensorflow.contrib import learn
 from gensim.models import Word2Vec
 import re
-# import jieba.analyse
+import jieba.analyse
 import pandas as pd
 import sklearn.model_selection
+
 
 # jieba.analyse.set_stop_words('/Users/imperatore/PycharmProjects/nlp-base/conf/stopwords.txt')
 
@@ -209,14 +210,30 @@ def split_sentence(fname_in, fname_out, has_tag=False):
     for line in lines:
       i += 1
       phrases = line.split(' ')
+      sentence = []
       for phrase in phrases:
         if has_tag:
           words = phrase.split('/')[0]
         else:
           words = phrase
-        fout.write(' '.join(words.split('_')))  # 词汇用空格分开
+        sentence.append(' '.join(words.split('_')))
+      # print(' '.join(sentence))
+      fout.write(' '.join(sentence) + '\n')  # 词汇用空格分开
       if i % 10000 == 0:
         print('Current %s lines.' % i)
+  fout.close()
+
+
+def merge_corpus(fnames, target_fname):
+  print('start merge')
+  fout = open(target_fname, 'a', encoding='utf8')
+  for i in range(0, len(fnames)):
+    with open(fnames[i], 'r', encoding='utf8') as fin:
+      lines = fin.readlines()
+      fout.writelines(lines)
+  fout.close()
+  print('All done.')
+
 
 if __name__ == '__main__':
   # x_train, y_train, x_test, y_test, vocab_processor = \
@@ -224,6 +241,15 @@ if __name__ == '__main__':
   # print(x_train.shape, y_train.shape)
   # print(x_test.shape, y_test.shape)
   # print('😒😒😒😒')
-  split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
-                 '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
+  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
+  #                '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
+  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/train.txt',
+  #                '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt', has_tag=True)
+  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/test.txt',
+  #                '/home/lian/data/nlp/datagrand_info_extra/test_pretr.txt', has_tag=False)
+
+  merge_corpus(['/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt',
+                '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
+                '/home/lian/data/nlp/datagrand_info_extra/test_pretr.txt'],
+               '/home/lian/data/nlp/datagrand_info_extra/total_corpus_pretr.txt')
   print('done')
