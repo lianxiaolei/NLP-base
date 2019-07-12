@@ -6,7 +6,7 @@ from tensorflow.contrib import learn
 import sys
 
 
-def gen_wordvec(corp_name, md_name, vproc_md_name=None, sg=1):
+def gen_wordvec(corp_name, md_name, sg=1):
   print('Start generating...')
   sentences = []
   with open(corp_name, 'r', encoding='utf8') as fin:
@@ -26,15 +26,6 @@ def gen_wordvec(corp_name, md_name, vproc_md_name=None, sg=1):
   vocab_processor = learn.preprocessing.VocabularyProcessor(
     max_document_length)
   print('Word to index done.')
-
-  # # The fit_transform function has the ability to slice
-  # corp_idxs = vocab_processor.fit_transform([' '.join(line) for line in sentences])
-  # vocabulary = vocab_processor.vocabulary_
-  # print(list(corp_idxs)[:10])
-  #
-  # if vproc_md_name:
-  #   vocab_processor.save(vproc_md_name)
-  #   print('Save vocabulary processor done.')
 
   # sentences = word2vec.Text8Corpus(corp_name)
   model = word2vec.Word2Vec(sentences, sg=sg)

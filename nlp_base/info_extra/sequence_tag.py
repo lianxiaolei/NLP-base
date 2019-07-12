@@ -3,10 +3,12 @@
 import datetime
 import os
 import time
-
+from nlp_base.tools.data_helper import *
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import rnn
+
+CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
 
 
 class SequenceTagging(object):
@@ -19,7 +21,6 @@ class SequenceTagging(object):
     self.rnn_units = rnn_units
     self.l2_reg_lambda = l2_reg_lambda
     self.x_test = None
-    self.flag = 0
 
     self.w_emb = tf.Variable(
       tf.random_uniform([self.vocab_size, self.embedding_size], -1., 1.),
@@ -28,38 +29,38 @@ class SequenceTagging(object):
   def init_wemb(self, value):
     self.sess.run(tf.assign(self.w_emb, value, name='init_wemb'))
 
-  def _build_embedding(self, inputs, wordvecs=None):
+  def _build_lookup(self, src):
     with tf.name_scope('embedding'):
       # 获取下标为x的w_emb中的内容
-      self.embedded_chars = tf.nn.embedding_lookup(self.w_emb, inputs)
+      self.embedding_chars = tf.nn.embedding_lookup(self.w_emb, src)
 
-      self.embedding_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
+      # self.embedding_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
 
-  def _build_rnn(self, inputs):
+  def _build_rnn(self, src_size):
     rnn_cell_fw = rnn.LSTMCell(self.rnn_units)
     rnn_cell_bw = rnn.LSTMCell(self.rnn_units)
     initial_state_fw = rnn_cell_fw.zero_state(self.batch_size, dtype=tf.float32)
     initial_state_bw = rnn_cell_bw.zero_state(self.batch_size, dtype=tf.float32)
 
+    print(self.embedding_chars.shape)
     outputs, states = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw,
                                                       rnn_cell_bw,
-                                                      inputs,
-                                                      self.sequence_length,
+                                                      self.embedding_chars,
+                                                      src_size,
                                                       initial_state_fw,
                                                       initial_state_bw)
 
-    return outputs
+    self.rnn_outputs = tf.add(outputs[0], outputs[1])
 
-  def build_net(self, inputs, batch_size=128, wordvecs=None):
-    self.FLAGS = tf.flags.FLAGS
-    self.batch_size = batch_size
+  def build_net(self, src, src_size, target):
+    self.batch_size = self.FLAGS.batch_size
 
-    with tf.name_scope(name='ph'):
-      self.x = tf.placeholder(tf.int32, [None, self.sequence_length], name='x')
-      self.y = tf.placeholder(tf.int32, [None, self.sequence_length], name='y')
+    # with tf.name_scope(name='ph'):
+    #   self.x = tf.placeholder(tf.int32, [None, self.sequence_length], name='x')
+    #   self.y = tf.sparse_placeholder(tf.int32, [None, self.sequence_length], name='y')
 
-      self.keep_prob = tf.placeholder(tf.float32, name='kp')
-      self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    self.keep_prob = self.FLAGS.dropout_keep_prob
+    self.learning_rate = self.FLAGS.lr
 
     self.l2_loss = tf.constant(0.0)
 
@@ -70,23 +71,26 @@ class SequenceTagging(object):
     self.sess = tf.Session(config=config)
 
     with self.sess.as_default():
-      self._build_embedding(inputs, wordvecs)
-      rnn_outputs = self._build_rnn(self.embedding_chars_expanded)
+      # embedding
+      self._build_lookup(src)
+      self._build_rnn(src_size)
 
-      self.score = tf.python.keras.layers.Dense(self.sequence_length,
-                                                use_bias=True)(rnn_outputs)
-      self.prediction = tf.argmax(self.score, axis=1, name='pred')
-
+      self.score = tf.keras.layers.Dense(self.num_tag, use_bias=True)(self.rnn_outputs)
+      self.logits = tf.nn.softmax(self.score, name='logits')
+      target = tf.expand_dims(target, axis=-1)
+      # target = tf.cast(target, tf.float32)
       # Define the loss operator
       with tf.name_scope('loss'):
-        loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.score,
-                                                       labels=self.y,
-                                                       name='cross_entropy')
-        self.loss = tf.reduce_mean(loss, name='reduce_mean')
+        print(self.logits.shape, target.shape)
+        self.loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.logits,
+                                                                   labels=target,
+                                                                   name='cross_entropy')
+
+        self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
 
       # Define the accuracy operator
       with tf.name_scope('accuracy'):
-        correct = tf.equal(self.prediction, tf.argmax(self.y, 1))
+        correct = tf.equal(tf.cast(tf.argmax(self.logits), tf.int32), target)
         self.accuracy = tf.reduce_mean(tf.cast(correct, 'float'),
                                        name='accuracy')
       # Defind the optimizer
@@ -178,8 +182,8 @@ class SequenceTagging(object):
     # if step % FLAGS.batch_size == 0:
     #     print('epoch:{}'.format(step // FLAGS.batch_size))
 
-    if accuracy > 0.8 and self.flag == 0 or accuracy > 0.9:
-      pred = self.sess.run(self.prediction,
+    if accuracy > 0.8:
+      pred = self.sess.run(self.logits,
                            feed_dict={self.x: self.x_test[:, :self.sequence_length],
                                       self.keep_prob: 1.})
       np.savetxt('result.txt', pred)
@@ -191,45 +195,59 @@ class SequenceTagging(object):
   def save_checkpoint(self, step):
     return self.saver.save(self.sess, self.checkpoint_prefix, global_step=step)
 
-  def run(self, x_train, y_train, x_dev, y_dev, dh):
-    for epoch in range(100):
-      # Generate batches
-      batches = dh.batch_iter(
-        list(zip(x_train, y_train)), self.FLAGS.batch_size, self.FLAGS.num_epochs)
-      # print('x_train:', x_train[0: 1])
-      # print('x_dev:', x_dev[0: 1])
-      # Training loop. For each batch...
-      for batch in batches:
-        try:
-          x_batch, y_batch = zip(*batch)
-        except Exception as e:
-          continue
-        self.train_step(x_batch, y_batch)
+  def run_epoch(self, session, cost_op, train_op, saver, step):
+    while True:
+      try:
+        cost, _, loss = session.run([cost_op, train_op, self.loss])
+        if step % 10 == 0:
+          print("After %d steps, per token cost is %.3f" % (step, cost))
+          # print('loss', loss)
+        # 每200步保存一个checkpoint。
+        if step % 200 == 0:
+          saver.save(session, CHECKPOINT_PATH, global_step=step)
+        step += 1
+      except tf.errors.OutOfRangeError:
+        print('All data has been used.')
+        break
+    return step
 
-        current_step = tf.train.global_step(self.sess, self.global_step)
-        if current_step % self.FLAGS.evaluate_every == 0:
-          print("\nEvaluation:")
-          start = np.random.randint(0, y_dev.shape[0] - self.FLAGS.batch_size + 1)
-          end = start + self.FLAGS.batch_size
-          self.dev_step(x_dev[start: end], y_dev[start: end])
-          print('ev done')
-        # if current_step % self.FLAGS.checkpoint_every == 0:
-        #     self.checkpoint(out_dir)
-        # path = self.saver.save(self.sess, self.checkpoint_prefix, global_step=current_step)
-        # print("Saved model checkpoint to {}\n".format(path))
+  def run(self):
+    self.FLAGS = tf.flags.FLAGS
+    self.num_tag = self.FLAGS.num_tag
+    data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
+    iterator = data.make_initializable_iterator()
+    (src, src_size), (trg_input, trg_label, trg_size) = iterator.get_next()
+    print('src shape', src.shape)
+    # 定义前向计算图。输入数据以张量形式提供给forward函数。
+    self.build_net(src, src_size, trg_label)
+
+    # 训练模型。
+    saver = tf.train.Saver()
+    step = 0
+    with tf.Session() as sess:
+      tf.global_variables_initializer().run()
+      for i in range(self.FLAGS.num_epochs):
+        print("In iteration: %d" % (i + 1))
+        sess.run(iterator.initializer)
+        step = self.run_epoch(sess, self.cost, self.train_op, saver, step)
 
 
 if __name__ == '__main__':
   # Data loading params
   tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
-  tf.app.flags.DEFINE_string("train_file", "../../dataset/train.csv", "Train file source.")
-  tf.app.flags.DEFINE_string("test_file", "../../dataset/test.csv", "Test file source.")
+  tf.app.flags.DEFINE_string("train_file", "/home/lian/data/nlp/datagrand_info_extra/train_index.txt",
+                             "Train file source.")
+  tf.app.flags.DEFINE_string("target_file", "/home/lian/data/nlp/datagrand_info_extra/target_index.txt",
+                             "Train file source.")
+  tf.app.flags.DEFINE_integer("num_tag", 4,
+                              "Train file source.")
 
   # Model Hyperparameters
   tf.app.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
   tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
   tf.app.flags.DEFINE_float("dropout_keep_prob", 0.1, "Dropout keep probability (default: 0.5)")
   tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
+  tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
 
   # Training parameters
   tf.app.flags.DEFINE_integer("batch_size", 128, "Batch Size (default: 64)")
@@ -237,6 +255,7 @@ if __name__ == '__main__':
   tf.app.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
   tf.app.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
   tf.app.flags.DEFINE_integer("num_checkpoints", 5, "Number of checkpoints to store (default: 5)")
+
   # Misc Parameters
   tf.app.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
   tf.app.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
@@ -246,28 +265,17 @@ if __name__ == '__main__':
   print('Building model...')
   network = SequenceTagging(
     vocab_size=9999,
-    sequence_length=x_train.shape[1],
+    sequence_length=800,
     embedding_size=200,
     rnn_units=128
   )
 
-  print('Loading data...')
-  x_train, y_train = dh.load_train_dev_data(FLAGS.train_file)
-  print('Data shape:', x_train.shape, y_train.shape)
-
-  dh = DataHelper()
-
-  init_w = dh.load_embedding_vectors_word2vec('../../model/datagrand_corpus.bin')
-
-  x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.1, shuffle=False)
+  init_w = load_embedding_vectors_word2vec('../../model/datagrand_corpus_pretrain.bin', FLAGS.embedding_dim)
 
   # Build and compile network
-  network.build_net()
+  network.run()
   # Add summaries to graph
   network.summary()
 
-  # 加载测试集
-  network.x_test = dh.load_test_data(FLAGS.test_file)
-  network.run(x_train, y_train, x_val, y_val, dh)
   # Save model
   # network.checkpoint(out_dir)
