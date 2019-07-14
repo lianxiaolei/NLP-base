@@ -250,37 +250,70 @@ def compare_index_tag(index_fname, tag_fname):
   ftg = open(tag_fname, 'r', encoding='utf8')
   ids = fid.readlines()
   tgs = ftg.readlines()
+  print(len(ids), len(tgs))
   assert len(ids) == len(tgs), "行长度不一样"
   for i in range(len(ids)):
     if len(ids[i].split(' ')) != len(tgs[i].split(' ')):
       print('在%s行长度不一致%s:%s' % (i, len(ids[i].split(' ')), len(tgs[i].split(' '))))
+  print('Compare done.')
 
 
 if __name__ == '__main__':
   # split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
   #                '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
-  split_sentence('/home/lian/data/nlp/datagrand_info_extra/train.txt',
-                 '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt', has_tag=True)
+  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/train.txt',
+  #                '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt', has_tag=True)
   # split_sentence('/home/lian/data/nlp/datagrand_info_extra/test.txt',
   #                '/home/lian/data/nlp/datagrand_info_extra/test_pretr.txt', has_tag=False)
+
+  # split_sentence('/Users/lianxiaohua/Data/datagrand/corpus.txt',
+  #                '/Users/lianxiaohua/Data/datagrand/corpus_pretr.txt')
+  split_sentence('/Users/lianxiaohua/Data/datagrand/train.txt',
+                 '/Users/lianxiaohua/Data/datagrand/train_pretr.txt', has_tag=True)
+  split_sentence('/Users/lianxiaohua/Data/datagrand/test.txt',
+                 '/Users/lianxiaohua/Data/datagrand/test_pretr.txt', has_tag=False)
+  print('Split sentence done.')
 
   # merge_corpus(['/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt',
   #               '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
   #               '/home/lian/data/nlp/datagrand_info_extra/test_pretr.txt'],
   #              '/home/lian/data/nlp/datagrand_info_extra/total_corpus_pretr.txt')
 
+  # merge_corpus(['/Users/lianxiaohua/Data/datagrand/corpus_pretr.txt',
+  #               '/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
+  #               '/Users/lianxiaohua/Data/datagrand/test_pretr.txt'],
+  #              '/Users/lianxiaohua/Data/datagrand/total_corpus_pretr.txt')
+  # print('merge_corpus done.')
+
   # gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/target.txt')
+  # gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
+  #                 '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+  #                 '../../model/datagrand_corpus_pretrain.bin')
 
-  gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
-                  '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+  gen_target_data('/Users/lianxiaohua/Data/datagrand/train.txt',
+                  '/Users/lianxiaohua/Data/datagrand/target.txt')
+  print('Generate target done.')
+  #
+  tag2num('/Users/lianxiaohua/Data/datagrand/target.txt',
+          '/Users/lianxiaohua/Data/datagrand/target_index.txt')
+  print('Target to index done.')
+  #
+  gen_train_index('/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
+                  '/Users/lianxiaohua/Data/datagrand/train_index.txt',
                   '../../model/datagrand_corpus_pretrain.bin')
+  print('Generate train index done.')
 
   # count_label_num('/home/lian/data/nlp/datagrand_info_extra/target.txt')
   # tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
   #         '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
-                    '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
+  count_label_num('/Users/lianxiaohua/Data/datagrand/target.txt')
+
+  # compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+  #                   '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
+
+  compare_index_tag('/Users/lianxiaohua/Data/datagrand/train_index.txt',
+                    '/Users/lianxiaohua/Data/datagrand/target_index.txt')
 
   print('done')
