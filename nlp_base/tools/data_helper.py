@@ -103,7 +103,7 @@ def gen_src_tar_dataset(src_path, tar_path, batch_size):
   # And add the generated labels to dataset.
   dataset = dataset.map(gen_target_input)
 
-  dataset = dataset.shuffle(10000)
+  # dataset = dataset.shuffle(1)
 
   # Define the output size of the padding data。
   padded_shapes = (
@@ -268,11 +268,11 @@ if __name__ == '__main__':
 
   # split_sentence('/Users/lianxiaohua/Data/datagrand/corpus.txt',
   #                '/Users/lianxiaohua/Data/datagrand/corpus_pretr.txt')
-  split_sentence('/Users/lianxiaohua/Data/datagrand/train.txt',
-                 '/Users/lianxiaohua/Data/datagrand/train_pretr.txt', has_tag=True)
-  split_sentence('/Users/lianxiaohua/Data/datagrand/test.txt',
-                 '/Users/lianxiaohua/Data/datagrand/test_pretr.txt', has_tag=False)
-  print('Split sentence done.')
+  # split_sentence('/Users/lianxiaohua/Data/datagrand/train.txt',
+  #                '/Users/lianxiaohua/Data/datagrand/train_pretr.txt', has_tag=True)
+  # split_sentence('/Users/lianxiaohua/Data/datagrand/test.txt',
+  #                '/Users/lianxiaohua/Data/datagrand/test_pretr.txt', has_tag=False)
+  # print('Split sentence done.')
 
   # merge_corpus(['/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt',
   #               '/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
@@ -287,33 +287,34 @@ if __name__ == '__main__':
 
   # gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/target.txt')
+  # tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
+  #         '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
+  #
   # gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
   #                 '../../model/datagrand_corpus_pretrain.bin')
 
-  gen_target_data('/Users/lianxiaohua/Data/datagrand/train.txt',
-                  '/Users/lianxiaohua/Data/datagrand/target.txt')
-  print('Generate target done.')
-  #
-  tag2num('/Users/lianxiaohua/Data/datagrand/target.txt',
-          '/Users/lianxiaohua/Data/datagrand/target_index.txt')
-  print('Target to index done.')
-  #
-  gen_train_index('/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
-                  '/Users/lianxiaohua/Data/datagrand/train_index.txt',
-                  '../../model/datagrand_corpus_pretrain.bin')
-  print('Generate train index done.')
+  # gen_target_data('/Users/lianxiaohua/Data/datagrand/train.txt',
+  #                 '/Users/lianxiaohua/Data/datagrand/target.txt')
+  # print('Generate target done.')
+
+  # tag2num('/Users/lianxiaohua/Data/datagrand/target.txt',
+  #         '/Users/lianxiaohua/Data/datagrand/target_index.txt')
+  # print('Target to index done.')
+
+  # gen_train_index('/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
+  #                 '/Users/lianxiaohua/Data/datagrand/train_index.txt',
+  #                 '../../model/datagrand_corpus_pretrain.bin')
+  # print('Generate train index done.')
 
   # count_label_num('/home/lian/data/nlp/datagrand_info_extra/target.txt')
-  # tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
-  #         '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  count_label_num('/Users/lianxiaohua/Data/datagrand/target.txt')
+  # count_label_num('/Users/lianxiaohua/Data/datagrand/target.txt')
 
   # compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
   #                   '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  compare_index_tag('/Users/lianxiaohua/Data/datagrand/train_index.txt',
-                    '/Users/lianxiaohua/Data/datagrand/target_index.txt')
+  compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+                    '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
   print('done')

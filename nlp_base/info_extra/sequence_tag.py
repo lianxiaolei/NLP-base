@@ -95,8 +95,6 @@ class SequenceTagging(object):
 
       # Reshape label from shape [batch_size,] to shape [batch_size, 1]
       self.target = target
-      # target = tf.expand_dims(self.targettarget, axis=-1)
-
       self.argmax = tf.argmax(self.logits, axis=-1)
 
       # Define the loss operator
@@ -110,12 +108,12 @@ class SequenceTagging(object):
 
       # Define the accuracy operator
       with tf.name_scope('accuracy'):
-        correct = tf.equal(tf.cast(self.argmax, tf.int32), target)
+        correct = tf.equal(tf.cast(self.argmax, tf.int32), self.target)
         self.accuracy = tf.reduce_mean(tf.cast(correct, 'float'),
                                        name='accuracy')
       # Defind the optimizer
       self.global_step = tf.Variable(0, name='global_step', trainable=False)
-      self.optimizer = tf.train.AdamOptimizer(1e-3)
+      self.optimizer = tf.train.AdamOptimizer(self.FLAGS.lr)
       self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
       self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
 
@@ -221,10 +219,10 @@ class SequenceTagging(object):
         cost, _, acc = session.run([cost_op, train_op, self.accuracy])
         if step % 10 == 0:
           print("After %d steps, per token cost is %.3f, acc is %.3f" % (step, cost, acc))
-          # print('loss', loss)
+
         # 每200步保存一个checkpoint。
         if step % 200 == 0:
-          saver.save(session, CHECKPOINT_PATH, global_step=step)
+          saver.save(session, self.FLAGS.checkpoint_path, global_step=step)
         step += 1
       except tf.errors.OutOfRangeError:
         print('All data has been used.')
@@ -253,24 +251,27 @@ class SequenceTagging(object):
 
 
 if __name__ == '__main__':
+  import yaml
+
+  with open('../../conf/settings.yml', 'r', encoding='utf8') as fin:
+    conf = yaml.load(fin, Loader=yaml.FullLoader)
+
   # Data loading params
   tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
-  # tf.app.flags.DEFINE_string("train_file", "/home/lian/data/nlp/datagrand_info_extra/train_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_string("train_file", "/Users/lianxiaohua/Data/datagrand/train_index.txt", "Train file source.")
-  # tf.app.flags.DEFINE_string("target_file", "/home/lian/data/nlp/datagrand_info_extra/target_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_string("target_file", "/Users/lianxiaohua/Data/datagrand/target_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_integer("num_tag", 4,
-                              "Train file source.")
+  tf.app.flags.DEFINE_string("train_file", conf['train_file'], "Train file source.")
+  tf.app.flags.DEFINE_string("target_file", conf['target_file'], "Train file source.")
+
+  tf.app.flags.DEFINE_integer("num_tag", 4, "Train file source.")
 
   # Model Hyperparameters
   tf.app.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
   tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
-  tf.app.flags.DEFINE_float("dropout_keep_prob", 0.1, "Dropout keep probability (default: 0.5)")
+  tf.app.flags.DEFINE_float("dropout_keep_prob", 0.9, "Dropout keep probability (default: 0.5)")
   tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
   tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
 
   # Training parameters
-  tf.app.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
+  tf.app.flags.DEFINE_integer("batch_size", 1, "Batch Size (default: 64)")
   tf.app.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
   tf.app.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
   tf.app.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
@@ -279,6 +280,8 @@ if __name__ == '__main__':
   # Misc Parameters
   tf.app.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
   tf.app.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
+
+  tf.app.flags.DEFINE_string("checkpoint_path", conf['checkpoint_path'], "Model checkpoint path")
 
   FLAGS = tf.app.flags.FLAGS
 
