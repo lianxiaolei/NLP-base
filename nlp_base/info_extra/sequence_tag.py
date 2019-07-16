@@ -2,10 +2,10 @@
 
 import datetime
 import time
-
+from tensorflow.python.framework import graph_util
 from tensorflow.contrib import rnn
-
 from nlp_base.tools.data_helper import *
+from nlp_base.tools import get_tensorflow_conf
 
 # CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
 CHECKPOINT_PATH = "/Users/lianxiaohua/PycharmProjects/NLP-base/model/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
@@ -28,6 +28,13 @@ class SequenceTagging(object):
       name='embedding')
 
   def init_wemb(self, value):
+    """
+    Initialize global embedding matrix.
+    Args:
+      value: A ndarray with shape [vocab_size, word_dim],
+        suggest train word vector with gensim-skipgram.
+
+    """
     self.sess.run(tf.assign(self.embedding, value, name='init_wemb'))
 
   def _build_lookup(self, src):
@@ -103,7 +110,7 @@ class SequenceTagging(object):
         self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
                                                                    labels=target,
                                                                    name='sparse_cross_entropy')
-
+        # Mean of loss.
         self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
 
       # Define the accuracy operator
@@ -119,26 +126,28 @@ class SequenceTagging(object):
 
       self.sess.run(tf.global_variables_initializer())
 
+  def inference(self, documents):
+    """
+
+    Args:
+      documents:
+
+    Returns:
+
+    """
+    pass
+
   def summary(self):
-    # Summary
+    """
+    Summary
+
+    """
     timestamp = str(int(time.time()))
     out_dir = os.path.abspath(os.path.join(os.path.curdir, 'run', timestamp))
-    print('Writing to {}\n'.format(out_dir))
 
     # Summary for loss and accuracy
     loss_summary = tf.summary.scalar('loss', self.loss)
     acc_summary = tf.summary.scalar('accuracy', self.accuracy)
-    # replace with tf.summary.scalar
-
-    # Keep track of gradient values and sparsity (optional)
-    grad_summaries = []
-    for g, v in self.grads_and_vars:
-      if g is not None:
-        grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
-        sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
-        grad_summaries.append(grad_hist_summary)
-        grad_summaries.append(sparsity_summary)
-    grad_summaries_merged = tf.summary.merge(grad_summaries)
 
     # Train summaries
     self.train_summary_op = tf.summary.merge([loss_summary, acc_summary])
@@ -150,7 +159,13 @@ class SequenceTagging(object):
     dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
     self.dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, self.sess.graph)
 
-  def checkpoint(self, out_dir):
+  def checkpoint(self, out_dir, verbose=True):
+    """
+    Generate model checkpoint.
+    Args:
+      out_dir: A string, output path.
+      verbose: A bool, whether to print information.
+    """
     checkpoint_dir = os.path.abspath(os.path.join(out_dir, 'checkpoints'))
     self.checkpoint_prefix = os.path.join(checkpoint_dir, 'model')
 
@@ -158,62 +173,56 @@ class SequenceTagging(object):
       os.mkdir(checkpoint_dir)
     self.saver = tf.train.Saver(tf.all_variables())
     path = self.saver.save(self.sess, self.checkpoint_prefix, global_step=self.global_step)
-    print("Saved model checkpoint to {}\n".format(path))
+    if verbose: print("Saved model checkpoint to {}\n".format(path))
 
-  def train_step(self, x_batch, y_batch):
-    feed_dict = {
-      self.x: x_batch,  # placeholder
-      self.y: y_batch,  # placeholder
-      self.keep_prob: self.FLAGS.dropout_keep_prob
-    }
+  def save_pb(self, pb_path):
+    """
+    Save model as a serialized pb file.
+    Args:
+      pb_path: Pb file path.
 
-    _, step, summaries, loss, accuracy = self.sess.run(
-      [self.train_op, self.global_step,
-       self.train_summary_op, self.loss, self.accuracy],
-      feed_dict=feed_dict
-    )
+    """
+    # Method convert_variables_to_constants need to fix output_node_names with type list.
+    constant_graph = graph_util.convert_variables_to_constants(
+      self.sess, self.sess.graph_def, ['op_to_store'])
 
-    time_str = datetime.datetime.now().isoformat()
-    print("{}:step:{},loss:{:g},acc:{:g}".format(time_str, step, loss, accuracy))
+    # Write to serialized PB file
+    with tf.gfile.FastGFile(pb_path + 'model.pb', mode='wb') as f:
+      f.write(constant_graph.SerializeToString())
 
-    self.train_summary_writer.add_summary(summaries, step)
-    if step % self.FLAGS.batch_size == 0:
-      print('epoch:{}'.format(step // self.FLAGS.batch_size))
+    # Save model builder
+    builder = tf.saved_model.builder.SavedModelBuilder(pb_path + 'savemodel')
+    # 构造模型保存的内容，指定要保存的 session，特定的 tag,
+    # 输入输出信息字典，额外的信息
+    builder.add_meta_graph_and_variables(self.sess, ['cpu_server_1'])
 
-  def dev_step(self, x_batch, y_batch):
-    feed_dict = {
-      self.x: x_batch,  # placeholder
-      self.y: y_batch,  # placeholder
-      self.keep_prob: 1.
-    }
+    # Add the second MetaGraphDef
+    # with tf.Session(graph=tf.Graph()) as sess:
+    # ...
+    # builder.add_meta_graph([tag_constants.SERVING])
+    # ...
 
-    _, step, summaries, loss, accuracy = self.sess.run(
-      [self.train_op, self.global_step,
-       self.dev_summary_op, self.loss, self.accuracy],
-      feed_dict=feed_dict
-    )
+    builder.save()
 
-    time_str = datetime.datetime.now().isoformat()
-    print("{}:step:{},loss:{:g},acc:{:g}".format(time_str, step, loss, accuracy))
+  def load_pb(self, pb_path):
+    with tf.Session(graph=tf.Graph()) as sess:
+      tf.saved_model.loader.load(sess, ['cpu_1'], pb_path + 'savemodel')
+      sess.run(tf.global_variables_initializer())
 
-    self.dev_summary_writer.add_summary(summaries, step)
-    # if step % FLAGS.batch_size == 0:
-    #     print('epoch:{}'.format(step // FLAGS.batch_size))
+      input_x = sess.graph.get_tensor_by_name('x:0')
+      input_y = sess.graph.get_tensor_by_name('y:0')
 
-    if accuracy > 0.8:
-      pred = self.sess.run(self.logits,
-                           feed_dict={self.x: self.x_test[:, :self.sequence_length],
-                                      self.keep_prob: 1.})
-      np.savetxt('result.txt', pred)
-      print('save done')
+      op = sess.graph.get_tensor_by_name('op_to_store:0')
 
   def current_step(self):
+    """
+    Get current training steps.
+    Returns:
+
+    """
     return tf.train.global_step(self.sess, self.global_step)
 
-  def save_checkpoint(self, step):
-    return self.saver.save(self.sess, self.checkpoint_prefix, global_step=step)
-
-  def run_epoch(self, session, cost_op, train_op, saver, step):
+  def for_each_epoch(self, session, cost_op, train_op, saver, step):
     while True:
       try:
         cost, _, acc = session.run([cost_op, train_op, self.accuracy])
@@ -239,7 +248,6 @@ class SequenceTagging(object):
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
 
-    # 训练模型。
     saver = tf.train.Saver()
     step = 0
     with tf.Session() as sess:
@@ -247,43 +255,11 @@ class SequenceTagging(object):
       for i in range(self.FLAGS.num_epochs):
         print("In iteration: %d" % (i + 1))
         sess.run(iterator.initializer)
-        step = self.run_epoch(sess, self.cost, self.train_op, saver, step)
+        step = self.for_each_epoch(sess, self.cost, self.train_op, saver, step)
 
 
 if __name__ == '__main__':
-  import yaml
-
-  with open('../../conf/settings.yml', 'r', encoding='utf8') as fin:
-    conf = yaml.load(fin, Loader=yaml.FullLoader)
-
-  # Data loading params
-  tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
-  tf.app.flags.DEFINE_string("train_file", conf['train_file'], "Train file source.")
-  tf.app.flags.DEFINE_string("target_file", conf['target_file'], "Train file source.")
-
-  tf.app.flags.DEFINE_integer("num_tag", 4, "Train file source.")
-
-  # Model Hyperparameters
-  tf.app.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
-  tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
-  tf.app.flags.DEFINE_float("dropout_keep_prob", 0.9, "Dropout keep probability (default: 0.5)")
-  tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
-  tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
-
-  # Training parameters
-  tf.app.flags.DEFINE_integer("batch_size", 1, "Batch Size (default: 64)")
-  tf.app.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
-  tf.app.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
-  tf.app.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
-  tf.app.flags.DEFINE_integer("num_checkpoints", 5, "Number of checkpoints to store (default: 5)")
-
-  # Misc Parameters
-  tf.app.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
-  tf.app.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
-
-  tf.app.flags.DEFINE_string("checkpoint_path", conf['checkpoint_path'], "Model checkpoint path")
-
-  FLAGS = tf.app.flags.FLAGS
+  FLAGS = get_tensorflow_conf(tf)
 
   print('Building model...')
   network = SequenceTagging(
