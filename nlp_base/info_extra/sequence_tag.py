@@ -271,6 +271,8 @@ if __name__ == '__main__':
 
   init_w = load_embedding_vectors_word2vec('../../model/datagrand_corpus_pretrain.bin', FLAGS.embedding_dim)
 
+  network.init_wemb(init_w)
+
   # Build and compile network
   network.run()
   # Add summaries to graph
