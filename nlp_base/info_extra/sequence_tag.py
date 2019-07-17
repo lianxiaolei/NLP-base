@@ -104,38 +104,41 @@ class SequenceTagging(object):
       self.target = target
       self.argmax = tf.argmax(self.logits, axis=-1)
 
-      # Define the loss operator
-      with tf.name_scope('loss'):
-        print('logits shape', self.logits.shape, 'target shape', target.shape)
-        self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
-                                                                   labels=target,
-                                                                   name='sparse_cross_entropy')
-        # Mean of loss.
-        self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
-
       # Define the accuracy operator
       with tf.name_scope('accuracy'):
         correct = tf.equal(tf.cast(self.argmax, tf.int32), self.target)
         self.accuracy = tf.reduce_mean(tf.cast(correct, 'float'),
                                        name='accuracy')
-      # Defind the optimizer
-      self.global_step = tf.Variable(0, name='global_step', trainable=False)
-      self.optimizer = tf.train.AdamOptimizer(self.FLAGS.lr)
-      self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
-      self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
 
-      self.sess.run(tf.global_variables_initializer())
-
-  def inference(self, documents):
+  def compile(self):
     """
+    Compile model, define loss and optimizer to take the gradient descent.
 
-    Args:
-      documents:
+    """
+    # Define the loss operator
+    with tf.name_scope('loss'):
+      print('logits shape', self.logits.shape, 'target shape', self.target.shape)
+      self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
+                                                                 labels=self.target,
+                                                                 name='sparse_cross_entropy')
+      # Mean of loss.
+      self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
 
+    # Defind the optimizer
+    self.global_step = tf.Variable(0, name='global_step', trainable=False)
+    self.optimizer = tf.train.AdamOptimizer(self.FLAGS.lr)
+    self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
+    self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
+
+    self.sess.run(tf.global_variables_initializer())
+
+  def inference(self):
+    """
+    Make a inference.
     Returns:
-
+      A ndarray, the most likely tags for a given document.
     """
-    pass
+    return self.sess.run(self.accuracy)
 
   def summary(self):
     """
@@ -158,22 +161,6 @@ class SequenceTagging(object):
     self.dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
     dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
     self.dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, self.sess.graph)
-
-  def checkpoint(self, out_dir, verbose=True):
-    """
-    Generate model checkpoint.
-    Args:
-      out_dir: A string, output path.
-      verbose: A bool, whether to print information.
-    """
-    checkpoint_dir = os.path.abspath(os.path.join(out_dir, 'checkpoints'))
-    self.checkpoint_prefix = os.path.join(checkpoint_dir, 'model')
-
-    if not os.path.exists(checkpoint_dir):
-      os.mkdir(checkpoint_dir)
-    self.saver = tf.train.Saver(tf.all_variables())
-    path = self.saver.save(self.sess, self.checkpoint_prefix, global_step=self.global_step)
-    if verbose: print("Saved model checkpoint to {}\n".format(path))
 
   def save_pb(self, pb_path):
     """
@@ -205,14 +192,18 @@ class SequenceTagging(object):
     builder.save()
 
   def load_pb(self, pb_path):
+    """
+    Load serialized model file.
+    Args:
+      pb_path: A string, model file path.
+
+    """
     with tf.Session(graph=tf.Graph()) as sess:
       tf.saved_model.loader.load(sess, ['cpu_1'], pb_path + 'savemodel')
       sess.run(tf.global_variables_initializer())
 
-      input_x = sess.graph.get_tensor_by_name('x:0')
-      input_y = sess.graph.get_tensor_by_name('y:0')
-
-      op = sess.graph.get_tensor_by_name('op_to_store:0')
+      x = sess.graph.get_tensor_by_name('x:0')
+      y = sess.graph.get_tensor_by_name('y:0')
 
   def current_step(self):
     """
@@ -222,23 +213,34 @@ class SequenceTagging(object):
     """
     return tf.train.global_step(self.sess, self.global_step)
 
-  def for_each_epoch(self, session, cost_op, train_op, saver, step):
+  def train_step(self, saver, step):
     while True:
       try:
-        cost, _, acc = session.run([cost_op, train_op, self.accuracy])
+        cost, _, acc = self.sess.run([self.cost, self.train_op, self.accuracy])
         if step % 10 == 0:
           print("After %d steps, per token cost is %.3f, acc is %.3f" % (step, cost, acc))
 
-        # 每200步保存一个checkpoint。
+        # Generate checkpoint every 200 train steps.
         if step % 200 == 0:
-          saver.save(session, self.FLAGS.checkpoint_path, global_step=step)
+          saver.save(self.sess, self.FLAGS.checkpoint_path, global_step=step)
         step += 1
       except tf.errors.OutOfRangeError:
         print('All data has been used.')
         break
     return step
 
-  def run(self):
+  def restore(self, checkpoint_path=None):
+    if not checkpoint_path:
+      checkpoint_path = self.FLAGS.checkpoint_path
+
+    # saver = tf.train.import_meta_graph('/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt-1000.meta')
+    saver = tf.train.Saver()
+
+    self.model = saver.restore(self.sess,
+                               tf.train.latest_checkpoint('/home/lian/PycharmProjects/NLP-base/model/checkpoint'))
+    print('Load model successfully.')
+
+  def run(self, inference=False):
     self.FLAGS = tf.flags.FLAGS
     self.num_tag = self.FLAGS.num_tag
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
@@ -248,14 +250,25 @@ class SequenceTagging(object):
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
 
-    saver = tf.train.Saver()
-    step = 0
-    with tf.Session() as sess:
-      tf.global_variables_initializer().run()
-      for i in range(self.FLAGS.num_epochs):
-        print("In iteration: %d" % (i + 1))
+    if not inference:
+      self.compile()
+      saver = tf.train.Saver()
+      step = 0
+      with self.sess.as_default() as sess:
+        tf.global_variables_initializer().run()
+        for i in range(self.FLAGS.num_epochs):
+          print("In iteration: %d" % (i + 1))
+          sess.run(iterator.initializer)
+          step = self.train_step(sess, saver, step)
+        return None
+    else:
+      with self.sess.as_default() as sess:
+        self.restore()
+        tf.global_variables_initializer().run()
         sess.run(iterator.initializer)
-        step = self.for_each_epoch(sess, self.cost, self.train_op, saver, step)
+        print('Interator has been initialized.')
+        result = self.inference()
+        return result
 
 
 if __name__ == '__main__':
@@ -271,12 +284,10 @@ if __name__ == '__main__':
 
   init_w = load_embedding_vectors_word2vec('../../model/datagrand_corpus_pretrain.bin', FLAGS.embedding_dim)
 
-  network.init_wemb(init_w)
+  # network.init_wemb(init_w)
 
   # Build and compile network
-  network.run()
+  result = network.run(inference=True)
   # Add summaries to graph
-  network.summary()
-
-  # Save model
-  # network.checkpoint(out_dir)
+  # network.summary()
+  print(result)
