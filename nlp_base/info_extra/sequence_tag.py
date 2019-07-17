@@ -130,15 +130,13 @@ class SequenceTagging(object):
     self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
     self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
 
-    self.sess.run(tf.global_variables_initializer())
-
   def inference(self):
     """
     Make a inference.
     Returns:
       A ndarray, the most likely tags for a given document.
     """
-    return self.sess.run(self.accuracy)
+    return self.sess.run([self.argmax, self.label])
 
   def summary(self):
     """
@@ -249,7 +247,7 @@ class SequenceTagging(object):
     print('src shape', src.shape)
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
-
+    self.label = trg_label
     if not inference:
       self.compile()
       saver = tf.train.Saver()
@@ -259,7 +257,7 @@ class SequenceTagging(object):
         for i in range(self.FLAGS.num_epochs):
           print("In iteration: %d" % (i + 1))
           sess.run(iterator.initializer)
-          step = self.train_step(sess, saver, step)
+          step = self.train_step(saver, step)
         return None
     else:
       with self.sess.as_default() as sess:
@@ -267,8 +265,8 @@ class SequenceTagging(object):
         tf.global_variables_initializer().run()
         sess.run(iterator.initializer)
         print('Interator has been initialized.')
-        result = self.inference()
-        return result
+        pred, label = self.inference()
+        return pred, label
 
 
 if __name__ == '__main__':
@@ -287,7 +285,10 @@ if __name__ == '__main__':
   # network.init_wemb(init_w)
 
   # Build and compile network
-  result = network.run(inference=True)
-  # Add summaries to graph
+  pred, label = network.run(inference=True)
+  # Add summaries to graphy
   # network.summary()
-  print(result)
+  print(pred.shape, label.shape)
+  print("pred", pred)
+  print("labl", label)
+

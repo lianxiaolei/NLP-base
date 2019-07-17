@@ -215,7 +215,7 @@ def gen_train_index(fname, target_fname, md_fname):
 
 
 def tag2num(fname, out_fname):
-  w2i_dict = {'c': 0, 'o': 1, 'b': 2, 'a': 3}
+  w2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
   fout = open(out_fname, 'a', encoding='utf8')
   with open(fname, 'r', encoding='utf8') as fin:
     lines = fin.readlines()
@@ -287,9 +287,9 @@ if __name__ == '__main__':
 
   # gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/target.txt')
-  # tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
-  #         '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
-  #
+  tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
+          '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
+
   # gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_pretr.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
   #                 '../../model/datagrand_corpus_pretrain.bin')

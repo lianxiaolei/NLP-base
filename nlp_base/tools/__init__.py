@@ -12,7 +12,7 @@ def get_tensorflow_conf(tf):
   tf.app.flags.DEFINE_string("train_file", conf['train_file'], "Train file source.")
   tf.app.flags.DEFINE_string("target_file", conf['target_file'], "Train file source.")
 
-  tf.app.flags.DEFINE_integer("num_tag", 4, "Train file source.")
+  tf.app.flags.DEFINE_integer("num_tag", 5, "Train file source.")
 
   # Model Hyperparameters
   tf.app.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
@@ -22,7 +22,7 @@ def get_tensorflow_conf(tf):
   tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
 
   # Training parameters
-  tf.app.flags.DEFINE_integer("batch_size", 1, "Batch Size (default: 64)")
+  tf.app.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
   tf.app.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
   tf.app.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
   tf.app.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
