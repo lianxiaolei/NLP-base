@@ -25,7 +25,15 @@ class SequenceTagging(object):
     # TODO Initialize embedding matrix.
     self.embedding = tf.Variable(
       tf.random_uniform([self.vocab_size, self.embedding_size], -1., 1.),
-      name='embedding')
+      name='embedding', trainable=True)
+
+    self.FLAGS = tf.flags.FLAGS
+
+    config = tf.ConfigProto(
+      allow_soft_placement=self.FLAGS.allow_soft_placement,
+      log_device_placement=self.FLAGS.log_device_placement)
+
+    self.sess = tf.Session(config=config)
 
   def init_wemb(self, value):
     """
@@ -45,26 +53,31 @@ class SequenceTagging(object):
 
     """
     with tf.name_scope('lookup'):
-      self.embedding_chars = tf.nn.embedding_lookup(self.embedding, src)
+      self.outputs = tf.nn.embedding_lookup(self.embedding, src)
 
   def _build_rnn(self):
     """
     Build a BiLSTM to capture the sequence information.
 
     """
-    rnn_cell_fw = rnn.LSTMCell(self.rnn_units)
-    rnn_cell_bw = rnn.LSTMCell(self.rnn_units)
-    initial_state_fw = rnn_cell_fw.zero_state(self.batch_size, dtype=tf.float32)
-    initial_state_bw = rnn_cell_bw.zero_state(self.batch_size, dtype=tf.float32)
+    # gru_1 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+    #                             kernel_initializer='he_normal',
+    #                             name='gru1')(self.outputs)
+    # gru_1b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+    #                              kernel_initializer='he_normal',
+    #                              name='gru1_b')(self.outputs)
+    # gru1_merged = tf.keras.layers.add([gru_1, gru_1b])  # [batch, height, units]
 
-    outputs, states = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw,
-                                                      rnn_cell_bw,
-                                                      self.embedding_chars,
-                                                      self.src_size,
-                                                      initial_state_fw,
-                                                      initial_state_bw)
+    gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+                                kernel_initializer='he_normal',
+                                name='gru2')(self.outputs)
+    gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+                                 kernel_initializer='he_normal',
+                                 name='gru2_b')(self.outputs)
 
-    self.rnn_outputs = tf.add(outputs[0], outputs[1])
+    outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
+
+    self.outputs = outputs
 
   def build_net(self, src, src_size, target):
     """
@@ -79,15 +92,6 @@ class SequenceTagging(object):
     self.src_size = src_size
 
     self.keep_prob = self.FLAGS.dropout_keep_prob
-    self.learning_rate = self.FLAGS.lr
-
-    self.l2_loss = tf.constant(0.0)
-
-    config = tf.ConfigProto(
-      allow_soft_placement=self.FLAGS.allow_soft_placement,
-      log_device_placement=self.FLAGS.log_device_placement)
-
-    self.sess = tf.Session(config=config)
 
     with self.sess.as_default():
       # embedding
@@ -97,18 +101,16 @@ class SequenceTagging(object):
       self._build_rnn()
 
       # Tail to logits
-      self.score = tf.keras.layers.Dense(self.num_tag, use_bias=True)(self.rnn_outputs)
+      self.outputs = tf.keras.layers.Dense(self.rnn_units, activation='relu')(self.outputs)
+      self.score = tf.keras.layers.Dense(self.num_tag, activation='relu', use_bias=True)(self.outputs)
       self.logits = tf.nn.softmax(self.score, name='logits')
 
-      # Reshape label from shape [batch_size,] to shape [batch_size, 1]
-      self.target = target
       self.argmax = tf.argmax(self.logits, axis=-1)
 
-      # Define the accuracy operator
-      with tf.name_scope('accuracy'):
-        correct = tf.equal(tf.cast(self.argmax, tf.int32), self.target)
-        self.accuracy = tf.reduce_mean(tf.cast(correct, 'float'),
-                                       name='accuracy')
+      self.target = target
+
+      # Define the sequence mask.
+      self.seq_mask = tf.sequence_mask(self.src_size, dtype=tf.float32)
 
   def compile(self):
     """
@@ -122,12 +124,18 @@ class SequenceTagging(object):
                                                                  labels=self.target,
                                                                  name='sparse_cross_entropy')
       # Mean of loss.
-      self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
+      # self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
+
+      self.cost = tf.reduce_sum(self.loss * self.seq_mask)
+      self.cost = self.cost / tf.reduce_sum(self.seq_mask)
 
     # Defind the optimizer
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
-    self.optimizer = tf.train.AdamOptimizer(self.FLAGS.lr)
-    self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
+    # self.learning_rate = tf.train.exponential_decay(self.FLAGS.lr, self.global_step,
+    #                                                 decay_steps=256, decay_rate=0.86)
+    self.learning_rate = self.FLAGS.lr
+    self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+    self.grads_and_vars = self.optimizer.compute_gradients(self.cost)
     self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
 
   def inference(self):
@@ -148,15 +156,15 @@ class SequenceTagging(object):
 
     # Summary for loss and accuracy
     loss_summary = tf.summary.scalar('loss', self.loss)
-    acc_summary = tf.summary.scalar('accuracy', self.accuracy)
+    # acc_summary = tf.summary.scalar('accuracy', self.accuracy)
 
     # Train summaries
-    self.train_summary_op = tf.summary.merge([loss_summary, acc_summary])
+    # self.train_summary_op = tf.summary.merge([loss_summary, acc_summary])
     train_summary_dir = os.path.join(out_dir, 'summaries', 'train')
     self.train_summary_writer = tf.summary.FileWriter(train_summary_dir, self.sess.graph)
 
     # Dev summaries
-    self.dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
+    # self.dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
     dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
     self.dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, self.sess.graph)
 
@@ -214,9 +222,9 @@ class SequenceTagging(object):
   def train_step(self, saver, step):
     while True:
       try:
-        cost, _, acc = self.sess.run([self.cost, self.train_op, self.accuracy])
+        cost, _ = self.sess.run([self.cost, self.train_op])
         if step % 10 == 0:
-          print("After %d steps, per token cost is %.3f, acc is %.3f" % (step, cost, acc))
+          print("After %d steps, per token cost is %.3f" % (step, cost))
 
         # Generate checkpoint every 200 train steps.
         if step % 200 == 0:
@@ -239,7 +247,6 @@ class SequenceTagging(object):
     print('Load model successfully.')
 
   def run(self, inference=False):
-    self.FLAGS = tf.flags.FLAGS
     self.num_tag = self.FLAGS.num_tag
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
     iterator = data.make_initializable_iterator()
@@ -274,21 +281,23 @@ if __name__ == '__main__':
 
   print('Building model...')
   network = SequenceTagging(
-    vocab_size=10600,
+    vocab_size=10034,
     sequence_length=800,
-    embedding_size=200,
+    embedding_size=100,
     rnn_units=128
   )
 
   init_w = load_embedding_vectors_word2vec('../../model/datagrand_corpus_pretrain.bin', FLAGS.embedding_dim)
 
-  # network.init_wemb(init_w)
+  network.init_wemb(init_w)
 
   # Build and compile network
-  pred, label = network.run(inference=True)
+  pred, label = network.run(inference=False)
   # Add summaries to graphy
   # network.summary()
   print(pred.shape, label.shape)
   print("pred", pred)
   print("labl", label)
-
+  np.savetxt('pred.txt', pred.astype(np.int), fmt='%.0f')
+  np.savetxt('labl.txt', label.astype(np.int), fmt='%.0f')
+  print("accu", np.sum(pred[pred > 0] == label[label > 0]) / (np.sum(label > 0)))
