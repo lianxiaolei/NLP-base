@@ -280,18 +280,53 @@ def check_index_corr(fname):
         print('%s is not in vocabulary index.' % i)
 
 
-def remove_low_freq_word(fname):
+def get_low_freq_word(trg_word_fname, freq=5):
   freq_dic = {}
-  with open(fname, 'r', encoding='utf8') as fin:
+  removable = []
+  with open(trg_word_fname, 'r', encoding='utf8') as fin:
     lines = fin.readlines()
     for line in lines:
       line = line.replace('\n', '')
-      phrases = line.split(' ')
-      for phrase in phrases:
-        if len(phrase) < 1: continue
-        freq_dic.setdefault(phrase, 0)
-        freq_dic[phrase] += 1
-  print(sorted(freq_dic.items(), key=lambda d: d[1]))
+      words = line.split(' ')
+      for word in words:
+        if len(word) < 1: continue
+        freq_dic.setdefault(word, 0)
+        if (freq_dic[word] == 0) and (word not in removable):
+          removable.append(word)
+        freq_dic[word] += 1
+        if (freq_dic[word] >= 5) and (word in removable):
+          removable.remove(word)
+  freq_dic = sorted(freq_dic.items(), key=lambda d: d[1])
+  print('frequence dictionary', freq_dic)
+  print('remoable list', removable)
+
+  with open(trg_word_fname, 'r', encoding='utf8') as fin:
+    lines = fin.readlines()
+    loc = []
+    row = 0
+    for line in lines:
+      line = line.replace('\n', '')
+      col = 0
+      for word in line.split(' '):
+        if word in removable:
+          loc.append([row, col])
+        col += 1
+      row += 1
+
+  return loc
+
+
+def remove_low_freq_word(locs, trg_word_fname, trg_word_cled_fname,
+                         trg_index_fname, trg_index_cled_fname):
+  f_word = open(trg_word_fname, 'r', encoding='utf8')
+  f_word_cled = open(trg_word_cled_fname, 'w', encoding='utf8')
+
+  lines = f_word.readlines()
+  words = [line.replace('\n', '').split(' ') for line in lines]
+  for loc in locs:
+    current_words = words[loc[0]]
+    words[loc[0]].remove(current_words[loc[1]])
+
 
 
 if __name__ == '__main__':
@@ -353,5 +388,6 @@ if __name__ == '__main__':
   # compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
   #                   '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  remove_low_freq_word('/home/lian/data/nlp/datagrand_info_extra/train_index.txt')
+  remove_low_freq_word('/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
+                       '/home/lian/data/nlp/datagrand_info_extra/train_index.txt')
   print('done')
