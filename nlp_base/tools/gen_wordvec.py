@@ -27,14 +27,9 @@ def gen_wordvec(corp_name, md_name, sg=1):
     if len(sentences[i]) > max_document_length:
       sentences[i] = sentences[i][:max_document_length]
 
-  # Processing input data with VocabularyProcessor
-  # vocab_processor = learn.preprocessing.VocabularyProcessor(
-  #   max_document_length)
-  # print('Word to index done.')
-
   print('Start training...', time.asctime())
-  sentences = word2vec.Text8Corpus(corp_name)
-  model = word2vec.Word2Vec(sentences, sg=sg)
+  # sentences = word2vec.Text8Corpus(corp_name)
+  model = word2vec.Word2Vec(sentences, sg=sg, min_count=1)
   model.save(md_name)
   print('Saved model done.', time.asctime())
   # get word index from model
@@ -42,8 +37,8 @@ def gen_wordvec(corp_name, md_name, sg=1):
 
 
 if __name__ == '__main__':
-  # gen_wordvec('/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt',
-  #             '../../model/datagrand_corpus_pretrain.bin')
+  gen_wordvec('/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt',
+              '../../model/datagrand_corpus_pretrain.bin')
 
 # model = word2vec.Word2Vec.load('../../model/datagrand_corpus_pretrain.bin')
 # idx = sorted(model.wv.index2word)[:100]

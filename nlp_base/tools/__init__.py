@@ -1,5 +1,6 @@
 import yaml
 
+
 def get_tensorflow_conf(tf):
   with open('../../conf/settings.yml', 'r', encoding='utf8') as fin:
     conf = yaml.load(fin, Loader=yaml.FullLoader)
@@ -19,7 +20,7 @@ def get_tensorflow_conf(tf):
   tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
   tf.app.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 0.5)")
   tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
-  tf.app.flags.DEFINE_float("lr", 0.0001, "Learning rate")
+  tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
 
   # Training parameters
   tf.app.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")

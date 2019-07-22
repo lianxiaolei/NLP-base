@@ -7,9 +7,8 @@ from tensorflow.contrib import rnn
 from nlp_base.tools.data_helper import *
 from nlp_base.tools import get_tensorflow_conf
 
-# CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
-CHECKPOINT_PATH = "/Users/lianxiaohua/PycharmProjects/NLP-base/model/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
 
+# CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
 
 class SequenceTagging(object):
   def __init__(self, sequence_length,
@@ -60,24 +59,24 @@ class SequenceTagging(object):
     Build a BiLSTM to capture the sequence information.
 
     """
-    # gru_1 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
-    #                             kernel_initializer='he_normal',
-    #                             name='gru1')(self.outputs)
-    # gru_1b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
-    #                              kernel_initializer='he_normal',
-    #                              name='gru1_b')(self.outputs)
-    # gru1_merged = tf.keras.layers.add([gru_1, gru_1b])  # [batch, height, units]
-
-    gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+    gru_1 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
                                 kernel_initializer='he_normal',
-                                name='gru2')(self.outputs)
-    gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+                                name='gru1')(self.outputs)
+    gru_1b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
                                  kernel_initializer='he_normal',
-                                 name='gru2_b')(self.outputs)
+                                 name='gru1_b')(self.outputs)
+    gru1_merged = tf.keras.layers.add([gru_1, gru_1b])  # [batch, height, units]
 
-    outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
+    # gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+    #                             kernel_initializer='he_normal',
+    #                             name='gru2')(self.outputs)
+    # gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+    #                              kernel_initializer='he_normal',
+    #                              name='gru2_b')(self.outputs)
+    #
+    # outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
 
-    self.outputs = outputs
+    self.outputs = gru1_merged
 
   def build_net(self, src, src_size, target):
     """
@@ -129,6 +128,17 @@ class SequenceTagging(object):
       self.cost = tf.reduce_sum(self.loss * self.seq_mask)
       self.cost = self.cost / tf.reduce_sum(self.seq_mask)
 
+      self.optimize()
+
+  def compile_with_crf(self):
+    with tf.name_scope('crf_loss'):
+      log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(self.logits, self.target,
+                                                                            self.src_size)
+      self.cost = tf.reduce_mean(-log_likelihood)
+
+      self.optimize()
+
+  def optimize(self):
     # Defind the optimizer
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
     # self.learning_rate = tf.train.exponential_decay(self.FLAGS.lr, self.global_step,
@@ -250,7 +260,7 @@ class SequenceTagging(object):
     self.num_tag = self.FLAGS.num_tag
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
     iterator = data.make_initializable_iterator()
-    (src, src_size), (trg_input, trg_label, trg_size) = iterator.get_next()
+    (src, src_size), trg_label = iterator.get_next()
     print('src shape', src.shape)
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
@@ -275,14 +285,26 @@ class SequenceTagging(object):
         pred, label = self.inference()
         return pred, label
 
+  def experiment(self):
+    data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
+    iterator = data.make_initializable_iterator()
+    (src, src_size), trg_label = iterator.get_next()
+    with self.sess.as_default() as sess:
+      sess.run(tf.global_variables_initializer())
+      sess.run(iterator.initializer)
+      src_arr, src_size_arr, trg_label_arr = sess.run([src, src_size, trg_label])
+    print('src_arr', src_arr)
+    print('src_size_arr', src_size_arr)
+    print('trg_label_arr', trg_label_arr)
+
 
 if __name__ == '__main__':
   FLAGS = get_tensorflow_conf(tf)
 
   print('Building model...')
   network = SequenceTagging(
-    vocab_size=10034,
-    sequence_length=800,
+    vocab_size=21350,
+    sequence_length=200,
     embedding_size=100,
     rnn_units=128
   )
@@ -291,13 +313,15 @@ if __name__ == '__main__':
 
   network.init_wemb(init_w)
 
+  # network.experiment()
+
   # Build and compile network
   pred, label = network.run(inference=False)
   # Add summaries to graphy
   # network.summary()
-  print(pred.shape, label.shape)
-  print("pred", pred)
-  print("labl", label)
-  np.savetxt('pred.txt', pred.astype(np.int), fmt='%.0f')
-  np.savetxt('labl.txt', label.astype(np.int), fmt='%.0f')
-  print("accu", np.sum(pred[pred > 0] == label[label > 0]) / (np.sum(label > 0)))
+  # print(pred.shape, label.shape)
+  # print("pred", pred)
+  # print("labl", label)
+  # np.savetxt('pred.txt', pred.astype(np.int), fmt='%.0f')
+  # np.savetxt('labl.txt', label.astype(np.int), fmt='%.0f')
+  # print("accu", np.sum(pred[pred > 0] == label[label > 0]) / (np.sum(label > 0)))

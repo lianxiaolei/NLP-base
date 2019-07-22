@@ -15,7 +15,7 @@ import sklearn.model_selection
 import tensorflow as tf
 
 # jieba.analyse.set_stop_words('/Users/imperatore/PycharmProjects/nlp-base/conf/stopwords.txt')
-MAX_LEN = 800  # 限定句子的最大单词数量。
+MAX_LEN = 32  # 限定句子的最大单词数量。
 SOS_ID = 1  # 目标语言词汇表中<sos>的ID。
 
 
@@ -54,12 +54,10 @@ def filter_by_length(src_tuple, trg_tuple):
   Returns:
 
   """
-  ((src_input, src_len), (trg_label, trg_len)) = (src_tuple, trg_tuple)
+  ((src_input, src_len), trg_label) = (src_tuple, trg_tuple)
   src_len_ok = tf.logical_and(
     tf.greater(src_len, 1), tf.less_equal(src_len, MAX_LEN))
-  trg_len_ok = tf.logical_and(
-    tf.greater(trg_len, 1), tf.less_equal(trg_len, MAX_LEN))
-  return tf.logical_and(src_len_ok, trg_len_ok)
+  return tf.logical_and(src_len_ok)
 
 
 def gen_target_input(src_tuple, trg_tuple):
@@ -73,8 +71,8 @@ def gen_target_input(src_tuple, trg_tuple):
 
   """
   ((src_input, src_len), (trg_label, trg_len)) = (src_tuple, trg_tuple)
-  trg_input = tf.concat([[SOS_ID], trg_label[:-1]], axis=0)
-  return (src_input, src_len), (trg_input, trg_label, trg_len)
+  src_input += 1
+  return (src_input, src_len), trg_label
 
 
 def gen_src_tar_dataset(src_path, tar_path, batch_size):
@@ -93,7 +91,7 @@ def gen_src_tar_dataset(src_path, tar_path, batch_size):
 
   dataset = tf.data.Dataset.zip((src_data, trg_data))
 
-  dataset = dataset.filter(filter_by_length)
+  # dataset = dataset.filter(filter_by_length)
 
   # Decoder needs two types sentence：
   # 1.decoder's input like "<sos> X Y Z"
@@ -109,9 +107,8 @@ def gen_src_tar_dataset(src_path, tar_path, batch_size):
   padded_shapes = (
     (tf.TensorShape([None]),  # src sentence is a dynamic length vector.
      tf.TensorShape([])),  # src sentence's length is a int value.
-    (tf.TensorShape([None]),  # tar sentence(input) is a dynamic length vector.
-     tf.TensorShape([None]),  # tar sentence(output) is a dynamic length vector.
-     tf.TensorShape([])))  # tar sentence's length is a int value.
+    tf.TensorShape([None]),  # tar sentence(output) is a dynamic length vector.
+  )
 
   # Call padded_batch to make batch.
   batched_dataset = dataset.padded_batch(batch_size, padded_shapes)
@@ -194,11 +191,11 @@ def gen_target_data(fname, target_fname):
 
 def get_w2v_vocab(md_fname):
   word2vec_model = Word2Vec.load(md_fname)
-  print(len(word2vec_model.wv.vocab.keys()))
   print(sorted(word2vec_model.wv.vocab.items()))
+  print(len(word2vec_model.wv.vocab.keys()))
 
-  for word in word2vec_model.wv.vocab.keys():
-    print(word, word2vec_model.wv.vocab[word].index)
+  # for word in word2vec_model.wv.vocab.keys():
+  #   print(word, word2vec_model.wv.vocab[word].index)
 
 
 def gen_train_index(fname, target_fname, md_fname):
@@ -264,6 +261,8 @@ def compare_index_tag(index_fname, tag_fname):
   for i in range(len(ids)):
     if len(ids[i].split(' ')) != len(tgs[i].split(' ')):
       print('在%s行长度不一致%s:%s' % (i, len(ids[i].split(' ')), len(tgs[i].split(' '))))
+  fid.close()
+  ftg.close()
 
 
 def check_index_corr(fname):
@@ -278,6 +277,13 @@ def check_index_corr(fname):
     for i in range(len(total)):
       if str(i) not in total:
         print('%s is not in vocabulary index.' % i)
+
+
+def merge_word_tag(word_fname, tag_fname, target_fname):
+  fword = open(word_fname, 'r', encoding='utf8')
+  ftg = open(tag_fname, 'r', encoding='utf8')
+  words = fword.readlines()
+  tags = ftg.readlines()
 
 
 def get_low_freq_word(trg_word_fname, freq=5):
@@ -323,10 +329,10 @@ def remove_low_freq_word(locs, trg_word_fname, trg_word_cled_fname,
 
   lines = f_word.readlines()
   words = [line.replace('\n', '').split(' ') for line in lines]
+
   for loc in locs:
     current_words = words[loc[0]]
     words[loc[0]].remove(current_words[loc[1]])
-
 
 
 if __name__ == '__main__':
@@ -350,44 +356,23 @@ if __name__ == '__main__':
   #               '/home/lian/data/nlp/datagrand_info_extra/test_sliced.txt'],
   #              '/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt')
 
-  # merge_corpus(['/Users/lianxiaohua/Data/datagrand/corpus_pretr.txt',
-  #               '/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
-  #               '/Users/lianxiaohua/Data/datagrand/test_pretr.txt'],
-  #              '/Users/lianxiaohua/Data/datagrand/total_corpus_pretr.txt')
-  # print('merge_corpus done.')
-
   # gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
   #                 '/home/lian/data/nlp/datagrand_info_extra/target.txt')
 
-  # print(get_w2v_vocab('../../model/datagrand_corpus_pretrain.bin'))
+  print(get_w2v_vocab('../../model/datagrand_corpus_pretrain.bin'))
 
-  # gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
-  #                 '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
-  #                 '../../model/datagrand_corpus_pretrain.bin')
+  gen_train_index('/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
+                  '/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+                  '../../model/datagrand_corpus_pretrain.bin')
 
-  # tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
-  #         '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
+  tag2num('/home/lian/data/nlp/datagrand_info_extra/target.txt',
+          '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  # gen_target_data('/Users/lianxiaohua/Data/datagrand/train.txt',
-  #                 '/Users/lianxiaohua/Data/datagrand/target.txt')
-  # print('Generate target done.')
+  count_label_num('/home/lian/data/nlp/datagrand_info_extra/target.txt')
 
-  # tag2num('/Users/lianxiaohua/Data/datagrand/target.txt',
-  #         '/Users/lianxiaohua/Data/datagrand/target_index.txt')
-  # print('Target to index done.')
+  compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
+                    '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
 
-  # gen_train_index('/Users/lianxiaohua/Data/datagrand/train_pretr.txt',
-  #                 '/Users/lianxiaohua/Data/datagrand/train_index.txt',
-  #                 '../../model/datagrand_corpus_pretrain.bin')
-  # print('Generate train index done.')
-
-  # count_label_num('/home/lian/data/nlp/datagrand_info_extra/target.txt')
-
-  # count_label_num('/Users/lianxiaohua/Data/datagrand/target.txt')
-
-  # compare_index_tag('/home/lian/data/nlp/datagrand_info_extra/train_index.txt',
-  #                   '/home/lian/data/nlp/datagrand_info_extra/target_index.txt')
-
-  remove_low_freq_word('/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
-                       '/home/lian/data/nlp/datagrand_info_extra/train_index.txt')
+  # remove_low_freq_word('/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
+  #                      '/home/lian/data/nlp/datagrand_info_extra/train_index.txt')
   print('done')
