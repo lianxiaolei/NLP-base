@@ -15,7 +15,7 @@ import sklearn.model_selection
 import tensorflow as tf
 
 # jieba.analyse.set_stop_words('/Users/imperatore/PycharmProjects/nlp-base/conf/stopwords.txt')
-MAX_LEN = 32  # 限定句子的最大单词数量。
+MAX_LEN = 64  # 限定句子的最大单词数量。
 SOS_ID = 1  # 目标语言词汇表中<sos>的ID。
 
 
@@ -57,7 +57,7 @@ def filter_by_length(src_tuple, trg_tuple):
   ((src_input, src_len), trg_label) = (src_tuple, trg_tuple)
   src_len_ok = tf.logical_and(
     tf.greater(src_len, 1), tf.less_equal(src_len, MAX_LEN))
-  return tf.logical_and(src_len_ok)
+  return tf.logical_and(src_len_ok, True)
 
 
 def gen_target_input(src_tuple, trg_tuple):
@@ -71,7 +71,7 @@ def gen_target_input(src_tuple, trg_tuple):
 
   """
   ((src_input, src_len), (trg_label, trg_len)) = (src_tuple, trg_tuple)
-  src_input += 1
+  # src_input += 1
   return (src_input, src_len), trg_label
 
 
@@ -91,7 +91,7 @@ def gen_src_tar_dataset(src_path, tar_path, batch_size):
 
   dataset = tf.data.Dataset.zip((src_data, trg_data))
 
-  # dataset = dataset.filter(filter_by_length)
+  dataset = dataset.filter(filter_by_length)
 
   # Decoder needs two types sentence：
   # 1.decoder's input like "<sos> X Y Z"
@@ -101,7 +101,7 @@ def gen_src_tar_dataset(src_path, tar_path, batch_size):
   # And add the generated labels to dataset.
   dataset = dataset.map(gen_target_input)
 
-  # dataset = dataset.shuffle(10000)
+  dataset = dataset.shuffle(10000)
 
   # Define the output size of the padding data。
   padded_shapes = (

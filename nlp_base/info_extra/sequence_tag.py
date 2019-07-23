@@ -11,20 +11,18 @@ from nlp_base.tools import get_tensorflow_conf
 # CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
 
 class SequenceTagging(object):
-  def __init__(self, sequence_length,
-               vocab_size, embedding_size,
-               rnn_units, l2_reg_lambda=0.0):
+  def __init__(self, vocab_size, embedding_size, rnn_units, max_seq_length=64, rnn_layer_num=2):
     self.vocab_size = vocab_size
-    self.sequence_length = sequence_length
     self.embedding_size = embedding_size
     self.rnn_units = rnn_units
-    self.l2_reg_lambda = l2_reg_lambda
+    self.max_seq_length = max_seq_length
+    self.rnn_layer_num = 2
     self.x_test = None
 
     # TODO Initialize embedding matrix.
     self.embedding = tf.Variable(
       tf.random_uniform([self.vocab_size, self.embedding_size], -1., 1.),
-      name='embedding', trainable=True)
+      name='embedding', trainable=False)
 
     self.FLAGS = tf.flags.FLAGS
 
@@ -42,7 +40,8 @@ class SequenceTagging(object):
         suggest train word vector with gensim-skipgram.
 
     """
-    self.sess.run(tf.assign(self.embedding, value, name='init_wemb'))
+    # self.sess.run(tf.assign(self.embedding, value, name='init_wemb'))
+    self.embedding = tf.assign(self.embedding, value, name='inited_wemb')
 
   def _build_lookup(self, src):
     """
@@ -52,31 +51,81 @@ class SequenceTagging(object):
 
     """
     with tf.name_scope('lookup'):
-      self.outputs = tf.nn.embedding_lookup(self.embedding, src)
+      self.lookup = tf.nn.embedding_lookup(self.embedding, src)
 
-  def _build_rnn(self):
+  def _build_rnn_with_keras(self):
     """
     Build a BiLSTM to capture the sequence information.
 
     """
     gru_1 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
                                 kernel_initializer='he_normal',
-                                name='gru1')(self.outputs)
+                                name='gru1')(self.lookup)
     gru_1b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
                                  kernel_initializer='he_normal',
-                                 name='gru1_b')(self.outputs)
-    gru1_merged = tf.keras.layers.add([gru_1, gru_1b])  # [batch, height, units]
+                                 name='gru1_b')(self.lookup)
+    # self.outputs = tf.keras.layers.add([gru_1, tf.reverse(gru_1b, axis=[1])])  # [batch, words, units]
+    self.merged_gru = tf.keras.layers.add([gru_1, gru_1b])  # [batch, words, units]
 
-    # gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
-    #                             kernel_initializer='he_normal',
-    #                             name='gru2')(self.outputs)
-    # gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
-    #                              kernel_initializer='he_normal',
-    #                              name='gru2_b')(self.outputs)
-    #
-    # outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
+    gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+                                kernel_initializer='he_normal',
+                                name='gru2')(self.merged_gru)
+    gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+                                 kernel_initializer='he_normal',
+                                 name='gru2_b')(self.merged_gru)
 
-    self.outputs = gru1_merged
+    self.outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
+
+  def _build_rnn(self):
+    """
+    Useless
+    Returns:
+
+    """
+
+    def lstm_cell():
+      cell = rnn.LSTMCell(self.rnn_units, reuse=tf.get_variable_scope().reuse)
+      return rnn.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
+
+    # ** 1.构建前向后向多层 LSTM
+    cell_fw = rnn.MultiRNNCell([lstm_cell() for _ in range(self.rnn_layer_num)], state_is_tuple=True)
+    cell_bw = rnn.MultiRNNCell([lstm_cell() for _ in range(self.rnn_layer_num)], state_is_tuple=True)
+
+    # ** 2.初始状态
+    initial_state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+    initial_state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+    # ** 3. bi-lstm 计算（展开）
+    with tf.variable_scope('bidirectional_rnn'):
+      # *** 下面，两个网络是分别计算 output 和 state
+      # Forward direction
+      outputs_fw = list()
+      state_fw = initial_state_fw
+      with tf.variable_scope('fw'):
+        for timestep in range(self.max_seq_length):
+          if timestep > 0:
+            tf.get_variable_scope().reuse_variables()
+          (output_fw, state_fw) = cell_fw(self.outputs[:, timestep, :], state_fw)  # The outputs is lookup.
+          outputs_fw.append(output_fw)
+
+      # backward direction
+      outputs_bw = list()
+      state_bw = initial_state_bw
+      with tf.variable_scope('bw') as bw_scope:
+        inputs = tf.reverse(self.src, [1])
+        for timestep in range(self.max_seq_length):
+          if timestep > 0:
+            tf.get_variable_scope().reuse_variables()
+          (output_bw, state_bw) = cell_bw(self.outputs[:, timestep, :], state_bw)
+          outputs_bw.append(output_bw)
+      # *** 然后把 output_bw 在 timestep 维度进行翻转
+      # outputs_bw.shape = [timestep_size, batch_size, hidden_size]
+      outputs_bw = tf.reverse(outputs_bw, [0])
+      # 把两个oupputs 拼成 [timestep_size, batch_size, hidden_size*2]
+      output = tf.concat([outputs_fw, outputs_bw], 2)
+      output = tf.transpose(output, perm=[1, 0, 2])
+      # output = tf.reshape(output, [-1, self.rnn_units * 2])
+      self.outputs = output
 
   def build_net(self, src, src_size, target):
     """
@@ -88,7 +137,9 @@ class SequenceTagging(object):
 
     """
     self.batch_size = self.FLAGS.batch_size
+    self.src = src
     self.src_size = src_size
+    self.target = target
 
     self.keep_prob = self.FLAGS.dropout_keep_prob
 
@@ -97,19 +148,18 @@ class SequenceTagging(object):
       self._build_lookup(src)
 
       # RNN
-      self._build_rnn()
+      self._build_rnn_with_keras()
 
       # Tail to logits
-      self.outputs = tf.keras.layers.Dense(self.rnn_units, activation='relu')(self.outputs)
-      self.score = tf.keras.layers.Dense(self.num_tag, activation='relu', use_bias=True)(self.outputs)
-      self.logits = tf.nn.softmax(self.score, name='logits')
+      self.outputs = tf.keras.layers.Dense(self.rnn_units * 4, activation='relu')(self.outputs)
+      self.score = tf.keras.layers.Dense(self.num_tag, activation='softmax')(self.outputs)
+      self.logits = self.score
+      # self.logits = tf.nn.softmax(self.score, name='logits')
 
       self.argmax = tf.argmax(self.logits, axis=-1)
 
-      self.target = target
-
       # Define the sequence mask.
-      self.seq_mask = tf.sequence_mask(self.src_size, dtype=tf.float32)
+      self.seq_mask = tf.sequence_mask(self.src_size, tf.shape(self.target)[1], dtype=tf.float32)
 
   def compile(self):
     """
@@ -139,6 +189,11 @@ class SequenceTagging(object):
       self.optimize()
 
   def optimize(self):
+    """
+    Optimizer
+    Returns:
+
+    """
     # Defind the optimizer
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
     # self.learning_rate = tf.train.exponential_decay(self.FLAGS.lr, self.global_step,
@@ -147,6 +202,22 @@ class SequenceTagging(object):
     self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
     self.grads_and_vars = self.optimizer.compute_gradients(self.cost)
     self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
+
+  def gd(self):
+    """
+    Useless
+    Returns:
+
+    """
+    trainable_variables = tf.trainable_variables()
+    grads = tf.gradients(self.cost / tf.to_float(self.batch_size), trainable_variables)
+    # clip gradients, return gradients,
+    #   using this method, we cann't need compute_gradient method.
+    grads, _ = tf.clip_by_global_norm(grads, 5.)
+
+    self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+
+    self.train_op = self.optimizer.apply_gradients(zip(grads, trainable_variables))
 
   def inference(self):
     """
@@ -165,61 +236,16 @@ class SequenceTagging(object):
     out_dir = os.path.abspath(os.path.join(os.path.curdir, 'run', timestamp))
 
     # Summary for loss and accuracy
-    loss_summary = tf.summary.scalar('loss', self.loss)
+    # loss_summary = tf.summary.scalar('loss', self.loss)
     # acc_summary = tf.summary.scalar('accuracy', self.accuracy)
 
     # Train summaries
-    # self.train_summary_op = tf.summary.merge([loss_summary, acc_summary])
     train_summary_dir = os.path.join(out_dir, 'summaries', 'train')
     self.train_summary_writer = tf.summary.FileWriter(train_summary_dir, self.sess.graph)
 
     # Dev summaries
-    # self.dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
     dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
     self.dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, self.sess.graph)
-
-  def save_pb(self, pb_path):
-    """
-    Save model as a serialized pb file.
-    Args:
-      pb_path: Pb file path.
-
-    """
-    # Method convert_variables_to_constants need to fix output_node_names with type list.
-    constant_graph = graph_util.convert_variables_to_constants(
-      self.sess, self.sess.graph_def, ['op_to_store'])
-
-    # Write to serialized PB file
-    with tf.gfile.FastGFile(pb_path + 'model.pb', mode='wb') as f:
-      f.write(constant_graph.SerializeToString())
-
-    # Save model builder
-    builder = tf.saved_model.builder.SavedModelBuilder(pb_path + 'savemodel')
-    # 构造模型保存的内容，指定要保存的 session，特定的 tag,
-    # 输入输出信息字典，额外的信息
-    builder.add_meta_graph_and_variables(self.sess, ['cpu_server_1'])
-
-    # Add the second MetaGraphDef
-    # with tf.Session(graph=tf.Graph()) as sess:
-    # ...
-    # builder.add_meta_graph([tag_constants.SERVING])
-    # ...
-
-    builder.save()
-
-  def load_pb(self, pb_path):
-    """
-    Load serialized model file.
-    Args:
-      pb_path: A string, model file path.
-
-    """
-    with tf.Session(graph=tf.Graph()) as sess:
-      tf.saved_model.loader.load(sess, ['cpu_1'], pb_path + 'savemodel')
-      sess.run(tf.global_variables_initializer())
-
-      x = sess.graph.get_tensor_by_name('x:0')
-      y = sess.graph.get_tensor_by_name('y:0')
 
   def current_step(self):
     """
@@ -232,7 +258,7 @@ class SequenceTagging(object):
   def train_step(self, saver, step):
     while True:
       try:
-        cost, _ = self.sess.run([self.cost, self.train_op])
+        _, cost = self.sess.run([self.train_op, self.cost])
         if step % 10 == 0:
           print("After %d steps, per token cost is %.3f" % (step, cost))
 
@@ -261,10 +287,10 @@ class SequenceTagging(object):
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
     iterator = data.make_initializable_iterator()
     (src, src_size), trg_label = iterator.get_next()
-    print('src shape', src.shape)
+
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
-    self.label = trg_label
+
     if not inference:
       self.compile()
       saver = tf.train.Saver()
@@ -277,6 +303,7 @@ class SequenceTagging(object):
           step = self.train_step(saver, step)
         return None
     else:
+      self.label = trg_label
       with self.sess.as_default() as sess:
         self.restore()
         tf.global_variables_initializer().run()
@@ -289,13 +316,17 @@ class SequenceTagging(object):
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
     iterator = data.make_initializable_iterator()
     (src, src_size), trg_label = iterator.get_next()
+    mask = tf.sequence_mask(src_size, dtype=tf.int32)
+    masked_trg = trg_label * mask
     with self.sess.as_default() as sess:
       sess.run(tf.global_variables_initializer())
       sess.run(iterator.initializer)
-      src_arr, src_size_arr, trg_label_arr = sess.run([src, src_size, trg_label])
+      src_arr, src_size_arr, trg_label_arr, masked_trg_arr = sess.run([src, src_size, trg_label, masked_trg])
     print('src_arr', src_arr)
     print('src_size_arr', src_size_arr)
     print('trg_label_arr', trg_label_arr)
+    print('mask_trg', masked_trg_arr)
+    np.savetxt('masked.txt', masked_trg_arr, fmt='%.0f')
 
 
 if __name__ == '__main__':
@@ -304,7 +335,6 @@ if __name__ == '__main__':
   print('Building model...')
   network = SequenceTagging(
     vocab_size=21350,
-    sequence_length=200,
     embedding_size=100,
     rnn_units=128
   )

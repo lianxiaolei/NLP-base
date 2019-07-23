@@ -5,9 +5,6 @@ def get_tensorflow_conf(tf):
   with open('../../conf/settings.yml', 'r', encoding='utf8') as fin:
     conf = yaml.load(fin, Loader=yaml.FullLoader)
 
-  with open('../../conf/settings.yml', 'r', encoding='utf8') as fin:
-    conf = yaml.load(fin, Loader=yaml.FullLoader)
-
   # Data loading params
   tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
   tf.app.flags.DEFINE_string("train_file", conf['train_file'], "Train file source.")
@@ -20,7 +17,7 @@ def get_tensorflow_conf(tf):
   tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
   tf.app.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 0.5)")
   tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
-  tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
+  tf.app.flags.DEFINE_float("lr", 0.01, "Learning rate")
 
   # Training parameters
   tf.app.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
