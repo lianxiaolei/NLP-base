@@ -93,13 +93,13 @@ def data_iterate(X, y, batch_size):
   # Split dataset to train and test.
   X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
   train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-  train_dataset = train_dataset.batch(batch_size)
+  train_dataset = train_dataset.shuffle(17000).batch(batch_size)
 
   dev_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-  dev_dataset = dev_dataset.batch(batch_size)
+  dev_dataset = dev_dataset.shuffle(17000).batch(batch_size)
 
   test_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-  test_dataset = test_dataset.batch(batch_size)
+  test_dataset = test_dataset.shuffle(17000).batch(batch_size)
 
   # A reinitializable iterator
   iterator = tf.data.Iterator.from_structure(train_dataset.output_types, train_dataset.output_shapes)
@@ -117,6 +117,7 @@ class SequenceLabelling(object):
   """
   Sequence labelling model class.
   """
+
   def __init__(self, num_classes, vocab_length, word_dim, units, rnn_layer_num, keep_prob):
     self.num_classes = num_classes
     self.vocab_length = vocab_length
@@ -161,15 +162,16 @@ class SequenceLabelling(object):
     return logits
 
   def _compile(self, logits, labels):
-    logits = tf.cast(tf.argmax(logits, axis=1), tf.int32)
+    pred = tf.cast(tf.argmax(logits, axis=1), tf.int32)
 
-    label_reshape = tf.cast(tf.reshape(labels, [-1]), tf.int32)
+    label = tf.cast(tf.reshape(labels, [-1]), tf.int32)
     # Prediction
-    correct_prediction = tf.equal(logits, label_reshape)
+    correct_prediction = tf.equal(pred, label)
     self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
     # Loss
     self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=label_reshape, logits=tf.cast(logits, tf.float32)))
+      labels=label, logits=tf.cast(logits, tf.float32)))
 
   def build(self, X, y):
     self._init_embedding()
@@ -197,7 +199,10 @@ class SequenceLabelling(object):
         sess.run(train_initializer)
         bar = tqdm(range(step_num), ncols=100)
         for step in bar:
-          loss, acc, _ = sess.run([self.loss, self.accuracy, self.train_op])
+          try:
+            loss, acc, _ = sess.run([self.loss, self.accuracy, self.train_op])
+          except tf.errors.OutOfRangeError:
+            sess.run(train_initializer)
 
           bar.set_description_str("Step:{}\t  Loss:{}\t  Acc:{}".format(step, str(loss)[:5], str(acc)[:5]))
 
@@ -216,7 +221,19 @@ class SequenceLabelling(object):
 
 
 if __name__ == '__main__':
-  word_set = get_t2i_map('/home/lian/data/nlp/datagrand_info_extra/train.txt')
-  sentences, tags = word2ind_with_w2v('/home/lian/data/nlp/datagrand_info_extra/train.txt', word_set)
+  word_set = get_w2i_map('/home/lian/data/nlp/datagrand_info_extra/train.txt')
+  sentences, tags = word2ind('/home/lian/data/nlp/datagrand_info_extra/train.txt', word_set)
   sentences = np.array(sentences)
   tags = np.array(tags)
+
+  train_initializer, dev_initializer, test_initializer, iterator = data_iterate(sentences, tags, 100)
+
+  X, y = iterator.get_next()
+
+  model = SequenceLabelling(5, 4550, 20, 128, 1, 1.)
+
+  model.build(X, y)
+
+  model.run_epoch(train_initializer, dev_initializer, 1e-3)
+
+  print('Model trained done.')
