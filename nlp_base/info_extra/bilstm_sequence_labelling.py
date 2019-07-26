@@ -6,8 +6,9 @@ import numpy as np
 from tensorflow.contrib import rnn
 from tqdm import tqdm
 
-MAX_SEQ_LEN = 64
+MAX_SEQ_LEN = 128
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
+CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
 
 def word2ind(fname, word_set):
@@ -146,7 +147,7 @@ class SequenceLabelling(object):
 
     # Unstack the inputs to list with step items.
     # TODO Why we need to unstack the timestep?
-    inputs = tf.unstack(X, 64, axis=1)
+    inputs = tf.unstack(X, MAX_SEQ_LEN, axis=1)
 
     output, _, _ = tf.contrib.rnn.stack_bidirectional_rnn(cell_fw, cell_bw,
                                                           inputs=inputs, dtype=tf.float32)
@@ -162,29 +163,55 @@ class SequenceLabelling(object):
     return logits
 
   def _compile(self, logits, labels):
-    pred = tf.cast(tf.argmax(logits, axis=1), tf.int32)
-
+    # Reshape
     label = tf.cast(tf.reshape(labels, [-1]), tf.int32)
-    # Prediction
-    correct_prediction = tf.equal(pred, label)
-    self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
     # Loss
     self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
       labels=label, logits=tf.cast(logits, tf.float32)))
 
-  def build(self, X, y):
+  def build(self, X, y, mode='train'):
     self._init_embedding()
     lookup = self._lookup(X)
     rnn_outputs = self._rnn_units(lookup)
     logits = self._tail(rnn_outputs)
+
     self._compile(logits, y)
+
+    # Prediction
+    self.pred = tf.cast(tf.argmax(logits, axis=1), tf.int64)
+    correct_prediction = tf.equal(self.pred, tf.reshape(y, [-1]))
+    print('pred shape {}, label shape {}'.format(self.pred.shape, y.shape))
+    self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+    if mode == 'test':
+      self.X = X
+      self.y = y
 
   def operate(self, lr=1e-3):
     # Train
     self.train_op = tf.train.AdamOptimizer(lr).minimize(self.loss)
     # Defind model saver.
     self.saver = tf.train.Saver()
+
+  def restore(self):
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+      self.model = saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT[:CHECKPOINT.rfind('/')]))
+    print('Load model successfully.')
+
+  def inference(self, test_initializer):
+    with tf.Session() as sess:
+      sess.run(tf.initialize_all_variables())
+      sess.run(test_initializer)
+      for step in range(1):
+        x_results, y_predict_results, acc = sess.run([self.X, self.pred, self.accuracy])
+        y_predict_results = np.reshape(y_predict_results, x_results.shape)
+        for i in range(len(x_results)):
+          x_result, y_predict_result = list(filter(lambda x: x, x_results[i])), list(
+            filter(lambda x: x, y_predict_results[i]))
+          # x_text, y_predict_text = ''.join(id2word[x_result].values), ''.join(id2tag[y_predict_result].values)
+          x_text, y_predict_text = x_result, y_predict_result
+          print(x_text, y_predict_text)
 
   def run_epoch(self, train_initializer, dev_initializer=None, lr=1e-3,
                 epoch_num=100, step_num=200, dev_step=10, save_when_acc=0.94):
@@ -215,8 +242,8 @@ class SequenceLabelling(object):
           bar.set_description_str("Step:{}\tAcc:{}".format(step, acc))
 
         if acc > save_when_acc:
-          self.saver.save(sess, '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt',
-                          global_step=step)
+          self.saver.save(sess, CHECKPOINT,
+                          global_step=epoch)
           print('Saved model done.')
 
 
@@ -232,8 +259,9 @@ if __name__ == '__main__':
 
   model = SequenceLabelling(5, 4550, 20, 128, 1, 1.)
 
-  model.build(X, y)
+  model.build(X, y, mode='test')
 
-  model.run_epoch(train_initializer, dev_initializer, 1e-3)
+  # model.run_epoch(train_initializer, dev_initializer, 1e-3)
+  model.inference(test_initializer)
 
   print('Model trained done.')
