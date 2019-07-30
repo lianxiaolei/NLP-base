@@ -2,33 +2,46 @@
 
 import datetime
 import time
-
+from tensorflow.python.framework import graph_util
 from tensorflow.contrib import rnn
-
 from nlp_base.tools.data_helper import *
+from nlp_base.tools import get_tensorflow_conf
+
 
 # CHECKPOINT_PATH = "/home/lian/PycharmProjects/seq2seq/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
-CHECKPOINT_PATH = "/Users/lianxiaohua/PycharmProjects/NLP-base/model/checkpoint/seq2seq_ckpt"  # checkpoint保存路径。
-
 
 class SequenceTagging(object):
-  def __init__(self, sequence_length,
-               vocab_size, embedding_size,
-               rnn_units, l2_reg_lambda=0.0):
+  def __init__(self, vocab_size, embedding_size, rnn_units, max_seq_length=64, rnn_layer_num=2):
     self.vocab_size = vocab_size
-    self.sequence_length = sequence_length
     self.embedding_size = embedding_size
     self.rnn_units = rnn_units
-    self.l2_reg_lambda = l2_reg_lambda
+    self.max_seq_length = max_seq_length
+    self.rnn_layer_num = 2
     self.x_test = None
 
     # TODO Initialize embedding matrix.
     self.embedding = tf.Variable(
       tf.random_uniform([self.vocab_size, self.embedding_size], -1., 1.),
-      name='embedding')
+      name='embedding', trainable=False)
+
+    self.FLAGS = tf.flags.FLAGS
+
+    config = tf.ConfigProto(
+      allow_soft_placement=self.FLAGS.allow_soft_placement,
+      log_device_placement=self.FLAGS.log_device_placement)
+
+    self.sess = tf.Session(config=config)
 
   def init_wemb(self, value):
-    self.sess.run(tf.assign(self.embedding, value, name='init_wemb'))
+    """
+    Initialize global embedding matrix.
+    Args:
+      value: A ndarray with shape [vocab_size, word_dim],
+        suggest train word vector with gensim-skipgram.
+
+    """
+    # self.sess.run(tf.assign(self.embedding, value, name='init_wemb'))
+    self.embedding = tf.assign(self.embedding, value, name='inited_wemb')
 
   def _build_lookup(self, src):
     """
@@ -38,26 +51,81 @@ class SequenceTagging(object):
 
     """
     with tf.name_scope('lookup'):
-      self.embedding_chars = tf.nn.embedding_lookup(self.embedding, src)
+      self.lookup = tf.nn.embedding_lookup(self.embedding, src)
 
-  def _build_rnn(self):
+  def _build_rnn_with_keras(self):
     """
     Build a BiLSTM to capture the sequence information.
 
     """
-    rnn_cell_fw = rnn.LSTMCell(self.rnn_units)
-    rnn_cell_bw = rnn.LSTMCell(self.rnn_units)
-    initial_state_fw = rnn_cell_fw.zero_state(self.batch_size, dtype=tf.float32)
-    initial_state_bw = rnn_cell_bw.zero_state(self.batch_size, dtype=tf.float32)
+    gru_1 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+                                kernel_initializer='he_normal',
+                                name='gru1')(self.lookup)
+    gru_1b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+                                 kernel_initializer='he_normal',
+                                 name='gru1_b')(self.lookup)
+    # self.outputs = tf.keras.layers.add([gru_1, tf.reverse(gru_1b, axis=[1])])  # [batch, words, units]
+    self.merged_gru = tf.keras.layers.add([gru_1, gru_1b])  # [batch, words, units]
 
-    outputs, states = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw,
-                                                      rnn_cell_bw,
-                                                      self.embedding_chars,
-                                                      self.src_size,
-                                                      initial_state_fw,
-                                                      initial_state_bw)
+    gru_2 = tf.keras.layers.GRU(self.rnn_units, return_sequences=True,
+                                kernel_initializer='he_normal',
+                                name='gru2')(self.merged_gru)
+    gru_2b = tf.keras.layers.GRU(self.rnn_units, return_sequences=True, go_backwards=True,
+                                 kernel_initializer='he_normal',
+                                 name='gru2_b')(self.merged_gru)
 
-    self.rnn_outputs = tf.add(outputs[0], outputs[1])
+    self.outputs = tf.keras.layers.concatenate([gru_2, gru_2b])  # [batch, height, units * 2]
+
+  def _build_rnn(self):
+    """
+    Useless
+    Returns:
+
+    """
+
+    def lstm_cell():
+      cell = rnn.LSTMCell(self.rnn_units, reuse=tf.get_variable_scope().reuse)
+      return rnn.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
+
+    # ** 1.构建前向后向多层 LSTM
+    cell_fw = rnn.MultiRNNCell([lstm_cell() for _ in range(self.rnn_layer_num)], state_is_tuple=True)
+    cell_bw = rnn.MultiRNNCell([lstm_cell() for _ in range(self.rnn_layer_num)], state_is_tuple=True)
+
+    # ** 2.初始状态
+    initial_state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+    initial_state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+    # ** 3. bi-lstm 计算（展开）
+    with tf.variable_scope('bidirectional_rnn'):
+      # *** 下面，两个网络是分别计算 output 和 state
+      # Forward direction
+      outputs_fw = list()
+      state_fw = initial_state_fw
+      with tf.variable_scope('fw'):
+        for timestep in range(self.max_seq_length):
+          if timestep > 0:
+            tf.get_variable_scope().reuse_variables()
+          (output_fw, state_fw) = cell_fw(self.outputs[:, timestep, :], state_fw)  # The outputs is lookup.
+          outputs_fw.append(output_fw)
+
+      # backward direction
+      outputs_bw = list()
+      state_bw = initial_state_bw
+      with tf.variable_scope('bw') as bw_scope:
+        inputs = tf.reverse(self.src, [1])
+        for timestep in range(self.max_seq_length):
+          if timestep > 0:
+            tf.get_variable_scope().reuse_variables()
+          (output_bw, state_bw) = cell_bw(self.outputs[:, timestep, :], state_bw)
+          outputs_bw.append(output_bw)
+      # *** 然后把 output_bw 在 timestep 维度进行翻转
+      # outputs_bw.shape = [timestep_size, batch_size, hidden_size]
+      outputs_bw = tf.reverse(outputs_bw, [0])
+      # 把两个oupputs 拼成 [timestep_size, batch_size, hidden_size*2]
+      output = tf.concat([outputs_fw, outputs_bw], 2)
+      output = tf.transpose(output, perm=[1, 0, 2])
+      # output = tf.reshape(output, [-1, self.rnn_units * 2])
+      self.outputs = output
 
   def build_net(self, src, src_size, target):
     """
@@ -69,233 +137,221 @@ class SequenceTagging(object):
 
     """
     self.batch_size = self.FLAGS.batch_size
+    self.src = src
     self.src_size = src_size
+    self.target = target
 
     self.keep_prob = self.FLAGS.dropout_keep_prob
-    self.learning_rate = self.FLAGS.lr
-
-    self.l2_loss = tf.constant(0.0)
-
-    config = tf.ConfigProto(
-      allow_soft_placement=self.FLAGS.allow_soft_placement,
-      log_device_placement=self.FLAGS.log_device_placement)
-
-    self.sess = tf.Session(config=config)
 
     with self.sess.as_default():
       # embedding
       self._build_lookup(src)
 
       # RNN
-      self._build_rnn()
+      self._build_rnn_with_keras()
 
       # Tail to logits
-      self.score = tf.keras.layers.Dense(self.num_tag, use_bias=True)(self.rnn_outputs)
-      self.logits = tf.nn.softmax(self.score, name='logits')
-
-      # Reshape label from shape [batch_size,] to shape [batch_size, 1]
-      self.target = target
-      # target = tf.expand_dims(self.targettarget, axis=-1)
+      self.outputs = tf.keras.layers.Dense(self.rnn_units * 4, activation='relu')(self.outputs)
+      self.score = tf.keras.layers.Dense(self.num_tag, activation='softmax')(self.outputs)
+      self.logits = self.score
+      # self.logits = tf.nn.softmax(self.score, name='logits')
 
       self.argmax = tf.argmax(self.logits, axis=-1)
 
-      # Define the loss operator
-      with tf.name_scope('loss'):
-        print('logits shape', self.logits.shape, 'target shape', target.shape)
-        self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
-                                                                   labels=target,
-                                                                   name='sparse_cross_entropy')
+      # Define the sequence mask.
+      self.seq_mask = tf.sequence_mask(self.src_size, tf.shape(self.target)[1], dtype=tf.float32)
 
-        self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
+  def compile(self):
+    """
+    Compile model, define loss and optimizer to take the gradient descent.
 
-      # Define the accuracy operator
-      with tf.name_scope('accuracy'):
-        correct = tf.equal(tf.cast(self.argmax, tf.int32), target)
-        self.accuracy = tf.reduce_mean(tf.cast(correct, 'float'),
-                                       name='accuracy')
-      # Defind the optimizer
-      self.global_step = tf.Variable(0, name='global_step', trainable=False)
-      self.optimizer = tf.train.AdamOptimizer(1e-3)
-      self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
-      self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
+    """
+    # Define the loss operator
+    with tf.name_scope('loss'):
+      print('logits shape', self.logits.shape, 'target shape', self.target.shape)
+      self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
+                                                                 labels=self.target,
+                                                                 name='sparse_cross_entropy')
+      # Mean of loss.
+      # self.cost = tf.reduce_mean(self.loss, name='reduce_mean')
 
-      self.sess.run(tf.global_variables_initializer())
+      self.cost = tf.reduce_sum(self.loss * self.seq_mask)
+      self.cost = self.cost / tf.reduce_sum(self.seq_mask)
+
+      self.optimize()
+
+  def compile_with_crf(self):
+    with tf.name_scope('crf_loss'):
+      log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(self.logits, self.target,
+                                                                            self.src_size)
+      self.cost = tf.reduce_mean(-log_likelihood)
+
+      self.optimize()
+
+  def optimize(self):
+    """
+    Optimizer
+    Returns:
+
+    """
+    # Defind the optimizer
+    self.global_step = tf.Variable(0, name='global_step', trainable=False)
+    # self.learning_rate = tf.train.exponential_decay(self.FLAGS.lr, self.global_step,
+    #                                                 decay_steps=256, decay_rate=0.86)
+    self.learning_rate = self.FLAGS.lr
+    self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+    self.grads_and_vars = self.optimizer.compute_gradients(self.cost)
+    self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, self.global_step)
+
+  def gd(self):
+    """
+    Useless
+    Returns:
+
+    """
+    trainable_variables = tf.trainable_variables()
+    grads = tf.gradients(self.cost / tf.to_float(self.batch_size), trainable_variables)
+    # clip gradients, return gradients,
+    #   using this method, we cann't need compute_gradient method.
+    grads, _ = tf.clip_by_global_norm(grads, 5.)
+
+    self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+
+    self.train_op = self.optimizer.apply_gradients(zip(grads, trainable_variables))
+
+  def inference(self):
+    """
+    Make a inference.
+    Returns:
+      A ndarray, the most likely tags for a given document.
+    """
+    return self.sess.run([self.argmax, self.label])
 
   def summary(self):
-    # Summary
+    """
+    Summary
+
+    """
     timestamp = str(int(time.time()))
     out_dir = os.path.abspath(os.path.join(os.path.curdir, 'run', timestamp))
-    print('Writing to {}\n'.format(out_dir))
 
     # Summary for loss and accuracy
-    loss_summary = tf.summary.scalar('loss', self.loss)
-    acc_summary = tf.summary.scalar('accuracy', self.accuracy)
-    # replace with tf.summary.scalar
-
-    # Keep track of gradient values and sparsity (optional)
-    grad_summaries = []
-    for g, v in self.grads_and_vars:
-      if g is not None:
-        grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
-        sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
-        grad_summaries.append(grad_hist_summary)
-        grad_summaries.append(sparsity_summary)
-    grad_summaries_merged = tf.summary.merge(grad_summaries)
+    # loss_summary = tf.summary.scalar('loss', self.loss)
+    # acc_summary = tf.summary.scalar('accuracy', self.accuracy)
 
     # Train summaries
-    self.train_summary_op = tf.summary.merge([loss_summary, acc_summary])
     train_summary_dir = os.path.join(out_dir, 'summaries', 'train')
     self.train_summary_writer = tf.summary.FileWriter(train_summary_dir, self.sess.graph)
 
     # Dev summaries
-    self.dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
     dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
     self.dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, self.sess.graph)
 
-  def checkpoint(self, out_dir):
-    checkpoint_dir = os.path.abspath(os.path.join(out_dir, 'checkpoints'))
-    self.checkpoint_prefix = os.path.join(checkpoint_dir, 'model')
-
-    if not os.path.exists(checkpoint_dir):
-      os.mkdir(checkpoint_dir)
-    self.saver = tf.train.Saver(tf.all_variables())
-    path = self.saver.save(self.sess, self.checkpoint_prefix, global_step=self.global_step)
-    print("Saved model checkpoint to {}\n".format(path))
-
-  def train_step(self, x_batch, y_batch):
-    feed_dict = {
-      self.x: x_batch,  # placeholder
-      self.y: y_batch,  # placeholder
-      self.keep_prob: self.FLAGS.dropout_keep_prob
-    }
-
-    _, step, summaries, loss, accuracy = self.sess.run(
-      [self.train_op, self.global_step,
-       self.train_summary_op, self.loss, self.accuracy],
-      feed_dict=feed_dict
-    )
-
-    time_str = datetime.datetime.now().isoformat()
-    print("{}:step:{},loss:{:g},acc:{:g}".format(time_str, step, loss, accuracy))
-
-    self.train_summary_writer.add_summary(summaries, step)
-    if step % self.FLAGS.batch_size == 0:
-      print('epoch:{}'.format(step // self.FLAGS.batch_size))
-
-  def dev_step(self, x_batch, y_batch):
-    feed_dict = {
-      self.x: x_batch,  # placeholder
-      self.y: y_batch,  # placeholder
-      self.keep_prob: 1.
-    }
-
-    _, step, summaries, loss, accuracy = self.sess.run(
-      [self.train_op, self.global_step,
-       self.dev_summary_op, self.loss, self.accuracy],
-      feed_dict=feed_dict
-    )
-
-    time_str = datetime.datetime.now().isoformat()
-    print("{}:step:{},loss:{:g},acc:{:g}".format(time_str, step, loss, accuracy))
-
-    self.dev_summary_writer.add_summary(summaries, step)
-    # if step % FLAGS.batch_size == 0:
-    #     print('epoch:{}'.format(step // FLAGS.batch_size))
-
-    if accuracy > 0.8:
-      pred = self.sess.run(self.logits,
-                           feed_dict={self.x: self.x_test[:, :self.sequence_length],
-                                      self.keep_prob: 1.})
-      np.savetxt('result.txt', pred)
-      print('save done')
-
   def current_step(self):
+    """
+    Get current training steps.
+    Returns:
+
+    """
     return tf.train.global_step(self.sess, self.global_step)
 
-  def save_checkpoint(self, step):
-    return self.saver.save(self.sess, self.checkpoint_prefix, global_step=step)
-
-  def run_epoch(self, session, cost_op, train_op, saver, step):
+  def train_step(self, saver, step):
     while True:
       try:
-        cost, _, acc = session.run([cost_op, train_op, self.accuracy])
+        _, cost = self.sess.run([self.train_op, self.cost])
         if step % 10 == 0:
-          print("After %d steps, per token cost is %.3f, acc is %.3f" % (step, cost, acc))
-          # print('loss', loss)
-        # 每200步保存一个checkpoint。
+          print("After %d steps, per token cost is %.3f" % (step, cost))
+
+        # Generate checkpoint every 200 train steps.
         if step % 200 == 0:
-          saver.save(session, CHECKPOINT_PATH, global_step=step)
+          saver.save(self.sess, self.FLAGS.checkpoint_path, global_step=step)
         step += 1
       except tf.errors.OutOfRangeError:
         print('All data has been used.')
         break
     return step
 
-  def run(self):
-    self.FLAGS = tf.flags.FLAGS
+  def restore(self, checkpoint_path=None):
+    if not checkpoint_path:
+      checkpoint_path = self.FLAGS.checkpoint_path
+
+    # saver = tf.train.import_meta_graph('/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt-1000.meta')
+    saver = tf.train.Saver()
+
+    self.model = saver.restore(self.sess,
+                               tf.train.latest_checkpoint('/home/lian/PycharmProjects/NLP-base/model/checkpoint'))
+    print('Load model successfully.')
+
+  def run(self, inference=False):
     self.num_tag = self.FLAGS.num_tag
     data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
     iterator = data.make_initializable_iterator()
-    (src, src_size), (trg_input, trg_label, trg_size) = iterator.get_next()
-    print('src shape', src.shape)
+    (src, src_size), trg_label = iterator.get_next()
+
     # 定义前向计算图。输入数据以张量形式提供给forward函数。
     self.build_net(src, src_size, trg_label)
 
-    # 训练模型。
-    saver = tf.train.Saver()
-    step = 0
-    with tf.Session() as sess:
-      tf.global_variables_initializer().run()
-      for i in range(self.FLAGS.num_epochs):
-        print("In iteration: %d" % (i + 1))
+    if not inference:
+      self.compile()
+      saver = tf.train.Saver()
+      step = 0
+      with self.sess.as_default() as sess:
+        tf.global_variables_initializer().run()
+        for i in range(self.FLAGS.num_epochs):
+          print("In iteration: %d" % (i + 1))
+          sess.run(iterator.initializer)
+          step = self.train_step(saver, step)
+        return None
+    else:
+      self.label = trg_label
+      with self.sess.as_default() as sess:
+        self.restore()
+        tf.global_variables_initializer().run()
         sess.run(iterator.initializer)
-        step = self.run_epoch(sess, self.cost, self.train_op, saver, step)
+        print('Interator has been initialized.')
+        pred, label = self.inference()
+        return pred, label
+
+  def experiment(self):
+    data = gen_src_tar_dataset(self.FLAGS.train_file, self.FLAGS.target_file, self.FLAGS.batch_size)
+    iterator = data.make_initializable_iterator()
+    (src, src_size), trg_label = iterator.get_next()
+    mask = tf.sequence_mask(src_size, dtype=tf.int32)
+    masked_trg = trg_label * mask
+    with self.sess.as_default() as sess:
+      sess.run(tf.global_variables_initializer())
+      sess.run(iterator.initializer)
+      src_arr, src_size_arr, trg_label_arr, masked_trg_arr = sess.run([src, src_size, trg_label, masked_trg])
+    print('src_arr', src_arr)
+    print('src_size_arr', src_size_arr)
+    print('trg_label_arr', trg_label_arr)
+    print('mask_trg', masked_trg_arr)
+    np.savetxt('masked.txt', masked_trg_arr, fmt='%.0f')
 
 
 if __name__ == '__main__':
-  # Data loading params
-  tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
-  # tf.app.flags.DEFINE_string("train_file", "/home/lian/data/nlp/datagrand_info_extra/train_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_string("train_file", "/Users/lianxiaohua/Data/datagrand/train_index.txt", "Train file source.")
-  # tf.app.flags.DEFINE_string("target_file", "/home/lian/data/nlp/datagrand_info_extra/target_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_string("target_file", "/Users/lianxiaohua/Data/datagrand/target_index.txt", "Train file source.")
-  tf.app.flags.DEFINE_integer("num_tag", 4,
-                              "Train file source.")
-
-  # Model Hyperparameters
-  tf.app.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
-  tf.app.flags.DEFINE_integer("rnn_units", 128, "Number of filters per filter size (default: 128)")
-  tf.app.flags.DEFINE_float("dropout_keep_prob", 0.1, "Dropout keep probability (default: 0.5)")
-  tf.app.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularization lambda (default: 0.0)")
-  tf.app.flags.DEFINE_float("lr", 0.001, "Learning rate")
-
-  # Training parameters
-  tf.app.flags.DEFINE_integer("batch_size", 100, "Batch Size (default: 64)")
-  tf.app.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs (default: 200)")
-  tf.app.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
-  tf.app.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
-  tf.app.flags.DEFINE_integer("num_checkpoints", 5, "Number of checkpoints to store (default: 5)")
-
-  # Misc Parameters
-  tf.app.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
-  tf.app.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
-
-  FLAGS = tf.app.flags.FLAGS
+  FLAGS = get_tensorflow_conf(tf)
 
   print('Building model...')
   network = SequenceTagging(
-    vocab_size=10600,
-    sequence_length=800,
-    embedding_size=200,
+    vocab_size=21350,
+    embedding_size=100,
     rnn_units=128
   )
 
   init_w = load_embedding_vectors_word2vec('../../model/datagrand_corpus_pretrain.bin', FLAGS.embedding_dim)
 
-  # Build and compile network
-  network.run()
-  # Add summaries to graph
-  network.summary()
+  network.init_wemb(init_w)
 
-  # Save model
-  # network.checkpoint(out_dir)
+  # network.experiment()
+
+  # Build and compile network
+  pred, label = network.run(inference=False)
+  # Add summaries to graphy
+  # network.summary()
+  # print(pred.shape, label.shape)
+  # print("pred", pred)
+  # print("labl", label)
+  # np.savetxt('pred.txt', pred.astype(np.int), fmt='%.0f')
+  # np.savetxt('labl.txt', label.astype(np.int), fmt='%.0f')
+  # print("accu", np.sum(pred[pred > 0] == label[label > 0]) / (np.sum(label > 0)))

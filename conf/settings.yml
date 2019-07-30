@@ -1,0 +1,39 @@
+# coding:utf8
+
+train_file:
+  '/home/lian/data/nlp/datagrand_info_extra/train_index.txt'
+#  '/Users/lianxiaohua/Data/datagrand/train_index.txt'
+
+target_file:
+  '/home/lian/data/nlp/datagrand_info_extra/target_index.txt'
+#  '/Users/lianxiaohua/Data/datagrand/target_index.txt'
+
+checkpoint_path:
+  '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
+#  '/Users/lianxiaohua/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
+
+num_tag: 4
+
+embedding_dim: 100
+
+rnn_units: 128
+
+dropout_keep_prob: 1.0
+
+l2_reg_lambda: 0.0
+
+lr: 0.001
+
+batch_size: 100
+
+num_epochs: 100
+
+evaluate_every: 10
+
+checkpoint_every: 100
+
+num_checkpoints: 5
+
+allow_soft_placement: True
+
+log_device_placement: False
