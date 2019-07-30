@@ -1,117 +1,14 @@
 # coding:utf8
 
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
 import numpy as np
 from tensorflow.contrib import rnn
 from tqdm import tqdm
+from nlp_base.info_extra import data_iterate, word2ind, get_w2i_map, word2ind_without_seg, test_data_iterate
 
-MAX_SEQ_LEN = 128
+MAX_SEQ_LEN = 256
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
-
-
-def word2ind(fname, word_set):
-  """
-  Convert word to index.
-  Args:
-    fname: Source file name.
-    word_set:  A fixed word set.
-
-  Returns:
-    sentences: A 2D list with word index.
-    tags:      A 2D list with word tags.
-  """
-  sentences = []
-  tags = []
-  with open(fname, 'r', encoding='utf8') as fin:
-    content = fin.read().replace('\n\n', '')
-    content_list = content.split('\n')
-    for line in content_list:
-      line_word_seg = []
-      line_tag_seg = []
-      for phrase in line.split(' '):
-        if len(phrase) < 3: continue
-        words, tag = phrase.split('/')
-        words = words.split('_')
-        tag = [t2i_dict[tag]] * len(words)
-        words = [word_set.index(word) for word in words]
-        line_word_seg.extend(words)
-        line_tag_seg.extend(tag)
-      if len(line_word_seg) < MAX_SEQ_LEN:
-        line_word_seg.extend([0] * (MAX_SEQ_LEN - len(line_word_seg)))
-        line_tag_seg.extend([0] * (MAX_SEQ_LEN - len(line_tag_seg)))
-      elif len(line_word_seg) > MAX_SEQ_LEN:
-        line_word_seg = line_word_seg[: MAX_SEQ_LEN]
-        line_tag_seg = line_tag_seg[: MAX_SEQ_LEN]
-      sentences.append(line_word_seg)
-      tags.append(line_tag_seg)
-  return sentences, tags
-
-
-def get_w2i_map(fname, preserve_zero=True):
-  """
-  Generate word set.
-  Args:
-    fname:         Source file name.
-    preserve_zero: Preserve the place for '<UNK>'.
-
-  Returns:
-    word_set:      A set contains word index.
-
-  """
-  word_list = []
-
-  with open(fname, 'r', encoding='utf8') as fin:
-    content = fin.read().replace('\n\n', '')
-    content_list = content.split('\n')
-    for line in content_list:
-      for phrase in line.split(' '):
-        if len(phrase) < 3: continue
-        words, tag = phrase.split('/')
-        words = words.split('_')
-        word_list.extend(words)
-  word_set = set(word_list)
-  word_set = sorted(word_set)
-
-  if preserve_zero:
-    word_set.insert(0, '<UNK>')
-
-  return word_set
-
-
-def data_iterate(X, y, batch_size):
-  """
-  Generate iterator for train dataset, dev dataset and test dataset.
-  Args:
-    X:          Features
-    y:          Labels
-    batch_size: Batch size.
-
-  Returns:
-    Return three initializer and a iterator.
-  """
-  # Split dataset to train and test.
-  X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
-  train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-  train_dataset = train_dataset.shuffle(17000).batch(batch_size)
-
-  dev_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-  dev_dataset = dev_dataset.shuffle(17000).batch(batch_size)
-
-  test_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-  test_dataset = test_dataset.shuffle(17000).batch(batch_size)
-
-  # A reinitializable iterator
-  iterator = tf.data.Iterator.from_structure(train_dataset.output_types, train_dataset.output_shapes)
-
-  # Initialize train dev and test dataset.
-  # This method can switch dataset flow, it's more flexible than single iterator.
-  train_initializer = iterator.make_initializer(train_dataset)
-  dev_initializer = iterator.make_initializer(dev_dataset)
-  test_initializer = iterator.make_initializer(test_dataset)
-
-  return train_initializer, dev_initializer, test_initializer, iterator
 
 
 class SequenceLabelling(object):
@@ -166,8 +63,9 @@ class SequenceLabelling(object):
     # Reshape
     label = tf.cast(tf.reshape(labels, [-1]), tf.int32)
     # Loss
-    self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=label, logits=tf.cast(logits, tf.float32)))
+    J = tf.nn.sparse_softmax_cross_entropy_with_logits(
+      labels=label, logits=tf.cast(logits, tf.float32))
+    self.loss =
 
   def build(self, X, y, mode='train'):
     self._init_embedding()
@@ -199,10 +97,12 @@ class SequenceLabelling(object):
       self.model = saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT[:CHECKPOINT.rfind('/')]))
     print('Load model successfully.')
 
-  def inference(self, test_initializer):
+  def inference(self, test_initializer, word_set):
     with tf.Session() as sess:
       sess.run(tf.initialize_all_variables())
+      sess.run(train_initializer)
       sess.run(test_initializer)
+
       for step in range(1):
         x_results, y_predict_results, acc = sess.run([self.X, self.pred, self.accuracy])
         y_predict_results = np.reshape(y_predict_results, x_results.shape)
@@ -211,14 +111,21 @@ class SequenceLabelling(object):
             filter(lambda x: x, y_predict_results[i]))
           # x_text, y_predict_text = ''.join(id2word[x_result].values), ''.join(id2tag[y_predict_result].values)
           x_text, y_predict_text = x_result, y_predict_result
-          print(x_text, y_predict_text)
+          print([word_set[idx] for idx in x_text], '\n', y_predict_text)
+          print(x_text, '\n', y_predict_text)
+          print('-' * 80)
 
   def run_epoch(self, train_initializer, dev_initializer=None, lr=1e-3,
-                epoch_num=100, step_num=200, dev_step=10, save_when_acc=0.94):
+                epoch_num=100, step_num=200, dev_step=10, save_when_acc=0.94, mode='train'):
     self.operate(lr=lr)
 
     with tf.Session() as sess:
       sess.run(tf.initialize_all_variables())
+      if mode == 'test':
+        sess.run(train_initializer)
+        acc = sess.run(self.accuracy)
+        print('accuracy', acc)
+        sys.exit(0)
       for epoch in range(epoch_num):
         # tf.train.global_step(sess, global_step_tensor=global_step)
 
@@ -248,20 +155,35 @@ class SequenceLabelling(object):
 
 
 if __name__ == '__main__':
+  import sys
+
   word_set = get_w2i_map('/home/lian/data/nlp/datagrand_info_extra/train.txt')
+  print('word set', word_set)
   sentences, tags = word2ind('/home/lian/data/nlp/datagrand_info_extra/train.txt', word_set)
   sentences = np.array(sentences)
   tags = np.array(tags)
+  print('train sentences\n', [word_set[item] for line in sentences for item in line][:10])
+  print('train sentences index\n', sentences[:10])
+  test_sentences = word2ind_without_seg('/home/lian/data/nlp/datagrand_info_extra/test.txt', word_set)
+  print('test sentences\n', [word_set[item] for line in test_sentences for item in line][:10])
+  print('test sentences index\n', test_sentences[:10])
 
-  train_initializer, dev_initializer, test_initializer, iterator = data_iterate(sentences, tags, 100)
+  # sys.exit(0)
+
+  train_initializer, dev_initializer, _, iterator = data_iterate(sentences, tags, 100)
+  test_initializer, test_iterator = test_data_iterate(sentences, 100)
 
   X, y = iterator.get_next()
+  test = test_iterator.get_next()
 
-  model = SequenceLabelling(5, 4550, 20, 128, 1, 1.)
+  model = SequenceLabelling(5, 4550, 256, 128, 1, 1.)
 
+  # model.build(X, y, mode='train')
   model.build(X, y, mode='test')
 
-  # model.run_epoch(train_initializer, dev_initializer, 1e-3)
-  model.inference(test_initializer)
+  # model.restore()
 
-  print('Model trained done.')
+  model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='test')
+  # model.inference(test_initializer, word_set)
+
+  print('All done.')
