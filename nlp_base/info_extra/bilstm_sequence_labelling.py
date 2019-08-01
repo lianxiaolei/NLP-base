@@ -6,7 +6,7 @@ from tensorflow.contrib import rnn
 from tqdm import tqdm
 from nlp_base.info_extra import data_iterate, word2ind, get_w2i_map, word2ind_without_seg, test_data_iterate
 
-MAX_SEQ_LEN = 256
+MAX_SEQ_LEN = 32
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
@@ -65,7 +65,7 @@ class SequenceLabelling(object):
     # Loss
     J = tf.nn.sparse_softmax_cross_entropy_with_logits(
       labels=label, logits=tf.cast(logits, tf.float32))
-    self.loss =
+    self.loss = J
 
   def build(self, X, y, mode='train'):
     self._init_embedding()
@@ -116,7 +116,7 @@ class SequenceLabelling(object):
           print('-' * 80)
 
   def run_epoch(self, train_initializer, dev_initializer=None, lr=1e-3,
-                epoch_num=100, step_num=200, dev_step=10, save_when_acc=0.94, mode='train'):
+                epoch_num=100, step_num=1000, dev_step=10, save_when_acc=0.94, mode='train'):
     self.operate(lr=lr)
 
     with tf.Session() as sess:
@@ -176,7 +176,7 @@ if __name__ == '__main__':
   X, y = iterator.get_next()
   test = test_iterator.get_next()
 
-  model = SequenceLabelling(5, 4550, 256, 128, 1, 1.)
+  model = SequenceLabelling(5, 4550, 128, 128, 1, 1.)
 
   # model.build(X, y, mode='train')
   model.build(X, y, mode='test')
