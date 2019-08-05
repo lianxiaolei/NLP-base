@@ -93,13 +93,16 @@ class SequenceLabelling(object):
     self.pred = tf.cast(tf.argmax(logits, axis=2), tf.int64)
     # modify01
     # correct_prediction = tf.equal(self.pred, tf.reshape(y, [-1]))
+    # modify02-re
     correct_prediction = tf.equal(self.pred, y)
-    # print('pred shape {}, label shape {}'.format(self.pred.shape, y.shape))
     self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    # seq_mask = tf.sequence_mask(self.seq_len, MAX_SEQ_LEN, dtype=tf.int64)
+    # correct_prediction = tf.equal(self.pred * seq_mask, y * seq_mask)
+
+    self.X = X
+    self.y = y
 
     if mode == 'test':
-      self.X = X
-      self.y = y
       self.restore()
 
   def operate(self, lr=1e-3):
@@ -134,14 +137,18 @@ class SequenceLabelling(object):
           print('-' * 80)
 
   def run_epoch(self, train_initializer, dev_initializer=None, lr=1e-3,
-                epoch_num=100, step_num=1000, dev_step=10, save_when_acc=0.94, mode='train'):
+                epoch_num=100, step_num=1000, dev_step=10,
+                save_when_acc=0.94, save_when_loss=0.1, mode='train'):
     self.operate(lr=lr)
 
     with self.sess.as_default() as sess:
-      sess.run(tf.initialize_all_variables())
+      if mode == 'train':
+        sess.run(tf.initialize_all_variables())
       if mode == 'test':
         sess.run(train_initializer)
         X, pred, acc = sess.run([self.X, self.pred, self.accuracy])
+        np.savetxt('X.txt', X, fmt='%.1f')
+        np.savetxt('pred.txt', pred, fmt='%.1f')
         print('accuracy', acc)
         print('X', X)
         print('pred', pred)
@@ -170,7 +177,9 @@ class SequenceLabelling(object):
             sess.run(dev_initializer)
           bar.set_description_str("Step:{}\tAcc:{}".format(step, acc))
 
-        if acc > save_when_acc:
+        # modify03
+        # if acc > save_when_acc:
+        if loss < save_when_loss:
           self.saver.save(sess, CHECKPOINT, global_step=epoch)
           print('Saved model done.')
 
@@ -193,7 +202,8 @@ if __name__ == '__main__':
   # print('test sentences\n', [word_set[item] for line in test_sentences for item in line][:10])
   # print('test sentences index\n', test_sentences[:10])
 
-  train_initializer, dev_initializer, _, iterator = data_iterate_with_seqlen(sentences, tags, seq_lens, 200)
+  train_initializer, dev_initializer, _, iterator = data_iterate_with_seqlen(sentences, tags, seq_lens, 200,
+                                                                             mode='test')
   test_initializer, test_iterator = test_data_iterate(sentences, 100)
 
   X, y, seq_len = iterator.get_next()
@@ -202,9 +212,9 @@ if __name__ == '__main__':
   model = SequenceLabelling(num_classes=5, vocab_length=4550, word_dim=128, units=128, rnn_layer_num=1, keep_prob=0.88)
 
   # model.build(X, y, mode='train')
-  model.build(X, y, seq_len, mode='train')
+  model.build(X, y, seq_len, mode='test')
 
-  model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='train', save_when_acc=0.99)
+  model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='test', save_when_acc=0.99)
   # model.inference(test_initializer, word_set)
 
   print('All done.')
