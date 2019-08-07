@@ -199,3 +199,5 @@ model
 
 *.txt
 nlp_base/info_extra/baseline/dg_model
+test
+nlp_base/nmt/dataset
