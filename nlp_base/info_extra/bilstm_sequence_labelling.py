@@ -1,6 +1,7 @@
 # coding:utf8
 
 import tensorflow as tf
+
 import numpy as np
 from tensorflow.contrib import rnn
 from tqdm import tqdm
@@ -8,6 +9,7 @@ from nlp_base.info_extra import data_iterate, word2ind, word2ind_with_seqlen, ge
   word2ind_without_seg, test_data_iterate, data_iterate_with_seqlen
 
 MAX_SEQ_LEN = 256
+
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
@@ -24,6 +26,7 @@ class SequenceLabelling(object):
     self.units = units
     self.rnn_layer_num = rnn_layer_num
     self.keep_prob = keep_prob
+
     self.sess = tf.Session()
 
   def _lstm_cell(self, reuse=False):
@@ -55,6 +58,7 @@ class SequenceLabelling(object):
     output = tf.stack(output, axis=1)
 
     # Reshape output to [batch * times, units * 2]
+
     # modify01
     # return tf.reshape(output, [-1, self.units * 2])
     return output
@@ -65,6 +69,7 @@ class SequenceLabelling(object):
 
   def _compile(self, logits, labels):
     # Reshape
+
     # modify01
     # labels = tf.cast(tf.reshape(labels, [-1]), tf.int32)
     labels = tf.cast(labels, tf.int32)
@@ -80,6 +85,7 @@ class SequenceLabelling(object):
 
   def build(self, X, y, seq_len, mode='train'):
     self.seq_len = seq_len
+
     self._init_embedding()
     lookup = self._lookup(X)
     rnn_outputs = self._rnn_units(lookup)
@@ -106,7 +112,6 @@ class SequenceLabelling(object):
       self.restore()
 
   def operate(self, lr=1e-3):
-
     # Train
     self.train_op = tf.train.AdamOptimizer(lr).minimize(self.loss)
     # Defind model saver.
@@ -114,6 +119,7 @@ class SequenceLabelling(object):
 
   def restore(self):
     saver = tf.train.Saver()
+
     with self.sess.as_default() as sess:
       saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT[:CHECKPOINT.rfind('/')]))
     print('Load model successfully.')
@@ -123,7 +129,6 @@ class SequenceLabelling(object):
       sess.run(tf.initialize_all_variables())
       sess.run(train_initializer)
       sess.run(test_initializer)
-
       for step in range(1):
         x_results, y_predict_results, acc = sess.run([self.X, self.pred, self.accuracy])
         y_predict_results = np.reshape(y_predict_results, x_results.shape)
@@ -132,6 +137,7 @@ class SequenceLabelling(object):
             filter(lambda x: x, y_predict_results[i]))
           # x_text, y_predict_text = ''.join(id2word[x_result].values), ''.join(id2tag[y_predict_result].values)
           x_text, y_predict_text = x_result, y_predict_result
+
           print([word_set[idx] for idx in x_text], '\n', y_predict_text)
           print(x_text, '\n', y_predict_text)
           print('-' * 80)
@@ -153,6 +159,7 @@ class SequenceLabelling(object):
         print('X', X)
         print('pred', pred)
         sys.exit(0)
+
       for epoch in range(epoch_num):
         # tf.train.global_step(sess, global_step_tensor=global_step)
 
