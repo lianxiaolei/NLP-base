@@ -6,7 +6,6 @@ def get_tensorflow_conf(tf):
     conf = yaml.load(fin, Loader=yaml.FullLoader)
 
   # Data loading params
-  tf.app.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
   tf.app.flags.DEFINE_string("train_file", conf['train_file'], "Train file source.")
   tf.app.flags.DEFINE_string("target_file", conf['target_file'], "Train file source.")
 

@@ -146,6 +146,7 @@ class SequenceLabelling(object):
         sess.run(tf.initialize_all_variables())
       if mode == 'test':
         sess.run(train_initializer)
+        sess.run(test_initializer)
         X, pred, acc = sess.run([self.X, self.pred, self.accuracy])
         np.savetxt('X.txt', X, fmt='%.1f')
         np.savetxt('pred.txt', pred, fmt='%.1f')
@@ -202,7 +203,7 @@ if __name__ == '__main__':
   # print('test sentences\n', [word_set[item] for line in test_sentences for item in line][:10])
   # print('test sentences index\n', test_sentences[:10])
 
-  train_initializer, dev_initializer, _, iterator = data_iterate_with_seqlen(sentences, tags, seq_lens, 200,
+  train_initializer, dev_initializer, _, iterator = data_iterate_with_seqlen(sentences, tags, seq_lens, 100,
                                                                              mode='test')
   test_initializer, test_iterator = test_data_iterate(sentences, 100)
 
@@ -212,7 +213,7 @@ if __name__ == '__main__':
   model = SequenceLabelling(num_classes=5, vocab_length=4550, word_dim=128, units=128, rnn_layer_num=1, keep_prob=0.88)
 
   # model.build(X, y, mode='train')
-  model.build(X, y, seq_len, mode='test')
+  model.build(test, y, seq_len, mode='test')
 
   model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='test', save_when_acc=0.99)
   # model.inference(test_initializer, word_set)
