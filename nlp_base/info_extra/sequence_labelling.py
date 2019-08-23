@@ -26,7 +26,8 @@ class SequenceLabelling(object):
 
     self.sess = tf.Session()
 
-    self.X = tf.placeholder(dtype=tf.float32, shape=[None, None, self.word_dim], name='X')
+    # self.X = tf.placeholder(dtype=tf.float32, shape=[None, None, self.word_dim], name='X')
+    self.X = tf.placeholder(dtype=tf.float32, shape=[None, None], name='X')
     self.y = tf.placeholder(dtype=tf.float32, shape=[None, None], name='y')
 
     self.seq_len = tf.placeholder(dtype=tf.float32, shape=[None], name='seq_len')
@@ -37,8 +38,8 @@ class SequenceLabelling(object):
     cell = rnn.LSTMCell(self.units)
     return rnn.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
 
-  def _init_embedding(self):
-    self.embedding = tf.Variable(tf.random_normal([self.vocab_length, self.word_dim]), dtype=tf.float32)
+  def _get_embedding(self):
+    self.embedding = tf.get_variable('word_emb', shape=[self.vocab_length, self.word_dim], dtype=tf.float32)
 
   def _lookup(self, X):
     lookup = tf.nn.embedding_lookup(self.embedding, X + 1)
@@ -65,10 +66,62 @@ class SequenceLabelling(object):
     logits = tf.keras.layers.Dense(self.num_classes)(X)
     return logits
 
+  def _build_net(self, compile=True):
+    self._get_embedding()
+    lookup = self._lookup(self.X)
+
+    rnn_outputs = self._rnn_units(lookup)
+    self.logits = self._tail(rnn_outputs)
+
+    if compile:
+      self._compile(self.logits, self.y)
+
   def _compile(self, logits, labels):
     labels = tf.cast(labels, tf.int32)
+
+    self.pred = tf.cast(tf.argmax(self.logits, axis=2), tf.int64)
+    correct_prediction = tf.equal(self.pred, self.y)
+
+    self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
     log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(inputs=logits, tag_indices=labels,
                                                                           sequence_lengths=self.seq_len)
     self.loss = tf.reduce_mean(-log_likelihood)
 
+    # Train
+    self.train_op = tf.train.AdamOptimizer(self.FLAGS.lr).minimize(self.loss)
+
+    # Defind model saver.
+    self.saver = tf.train.Saver()
+
+  def train(self, iterator, train_initializer, dev_initializer=None,
+            epoch_num=100, step_num=1000, save_when_acc=0.92, save_when_loss=0.1, dev_step=10):
+    X, y, seq_len = iterator.get_next()
+    with self.sess.as_default() as sess:
+      sess.run(tf.initialize_all_variables())
+      for epoch in range(epoch_num):
+        sess.run(train_initializer)
+        bar = tqdm(range(step_num), ncols=100)
+        for step in bar:
+          try:
+            loss, acc, _ = sess.run([self.loss, self.accuracy, self.train_op],
+                                    feed_dict={self.X: X,
+                                               self.y: y,
+                                               self.seq_len: seq_len})
+          except tf.errors.OutOfRangeError:
+            sess.run(train_initializer)
+          bar.set_description_str("Step:{}\t  Loss:{}\t  Acc:{}".format(step, str(loss)[:5], str(acc)[:5]))
+
+        # Dev
+        sess.run(dev_initializer)
+        bar = tqdm(range(dev_step), ncols=100)
+        for step in bar:
+          try:
+            acc = sess.run(self.accuracy)
+          except tf.errors.OutOfRangeError:
+            sess.run(dev_initializer)
+          bar.set_description_str("Step:{}\tAcc:{}".format(step, acc))
+
+        if loss < save_when_loss:
+          self.saver.save(sess, self.FLAGS.check_point, global_step=epoch)
+          print('Saved model done.')
