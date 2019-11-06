@@ -3,7 +3,7 @@
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 
-MAX_SEQ_LEN = 256
+MAX_SEQ_LEN = 128
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
 
 

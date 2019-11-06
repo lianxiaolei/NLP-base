@@ -8,7 +8,7 @@ from nlp_base.info_extra import data_iterate, word2ind, word2ind_with_seqlen, ge
   word2ind_without_seg, test_data_iterate, data_iterate_with_seqlen
 
 MAX_SEQ_LEN = 256
-t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
+# t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
 
@@ -213,9 +213,9 @@ if __name__ == '__main__':
   model = SequenceLabelling(num_classes=5, vocab_length=4550, word_dim=128, units=128, rnn_layer_num=1, keep_prob=0.88)
 
   # model.build(X, y, mode='train')
-  model.build(test, y, seq_len, mode='test')
+  model.build(X, y, seq_len, mode='train')
 
-  model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='test', save_when_acc=0.99)
+  model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='train', save_when_acc=0.99)
   # model.inference(test_initializer, word_set)
 
   print('All done.')

@@ -1,7 +1,7 @@
 # coding:utf8
 
 import tensorflow as tf
-from seq2seq.utils.rnn_data_helper import *
+from tools.data_helper import gen_src_tar_dataset
 
 # 假设输入数据已经用9.2.1小节中的方法转换成了单词编号的格式。
 SRC_TRAIN_DATA = "/home/lian/PycharmProjects/seq2seq/dataset/train.en"  # 源语言输入文件。
