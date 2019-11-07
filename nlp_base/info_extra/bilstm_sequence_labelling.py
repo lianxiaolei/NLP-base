@@ -11,7 +11,10 @@ from nlp_base.info_extra import data_iterate, word2ind, word2ind_with_seqlen, ge
 MAX_SEQ_LEN = 256
 
 t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
+<<<<<<< HEAD
 
+=======
+>>>>>>> dcf849cd13cef78636928f9421c685a39a928dc7
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
 
@@ -113,7 +116,10 @@ class SequenceLabelling(object):
       self.restore()
 
   def operate(self, lr=1e-3):
+<<<<<<< HEAD
 
+=======
+>>>>>>> dcf849cd13cef78636928f9421c685a39a928dc7
     # Train
     self.train_op = tf.train.AdamOptimizer(lr).minimize(self.loss)
     # Defind model saver.
@@ -131,7 +137,10 @@ class SequenceLabelling(object):
       sess.run(tf.initialize_all_variables())
       sess.run(train_initializer)
       sess.run(test_initializer)
+<<<<<<< HEAD
 
+=======
+>>>>>>> dcf849cd13cef78636928f9421c685a39a928dc7
       for step in range(1):
         x_results, y_predict_results, acc = sess.run([self.X, self.pred, self.accuracy])
         y_predict_results = np.reshape(y_predict_results, x_results.shape)
