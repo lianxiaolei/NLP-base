@@ -1,6 +1,7 @@
 # coding:utf8
 
 import tensorflow as tf
+
 import numpy as np
 from tensorflow.contrib import rnn
 from tqdm import tqdm
@@ -8,7 +9,9 @@ from nlp_base.info_extra import data_iterate, word2ind, word2ind_with_seqlen, ge
   word2ind_without_seg, test_data_iterate, data_iterate_with_seqlen
 
 MAX_SEQ_LEN = 256
-# t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
+
+t2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
+
 CHECKPOINT = '/home/lian/PycharmProjects/NLP-base/model/checkpoint/seqtag_ckpt'
 
 
@@ -24,6 +27,7 @@ class SequenceLabelling(object):
     self.units = units
     self.rnn_layer_num = rnn_layer_num
     self.keep_prob = keep_prob
+
     self.sess = tf.Session()
 
   def _lstm_cell(self, reuse=False):
@@ -55,6 +59,7 @@ class SequenceLabelling(object):
     output = tf.stack(output, axis=1)
 
     # Reshape output to [batch * times, units * 2]
+
     # modify01
     # return tf.reshape(output, [-1, self.units * 2])
     return output
@@ -65,6 +70,7 @@ class SequenceLabelling(object):
 
   def _compile(self, logits, labels):
     # Reshape
+
     # modify01
     # labels = tf.cast(tf.reshape(labels, [-1]), tf.int32)
     labels = tf.cast(labels, tf.int32)
@@ -80,6 +86,7 @@ class SequenceLabelling(object):
 
   def build(self, X, y, seq_len, mode='train'):
     self.seq_len = seq_len
+
     self._init_embedding()
     lookup = self._lookup(X)
     rnn_outputs = self._rnn_units(lookup)
@@ -114,6 +121,7 @@ class SequenceLabelling(object):
 
   def restore(self):
     saver = tf.train.Saver()
+
     with self.sess.as_default() as sess:
       saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT[:CHECKPOINT.rfind('/')]))
     print('Load model successfully.')
@@ -132,6 +140,7 @@ class SequenceLabelling(object):
             filter(lambda x: x, y_predict_results[i]))
           # x_text, y_predict_text = ''.join(id2word[x_result].values), ''.join(id2tag[y_predict_result].values)
           x_text, y_predict_text = x_result, y_predict_result
+
           print([word_set[idx] for idx in x_text], '\n', y_predict_text)
           print(x_text, '\n', y_predict_text)
           print('-' * 80)
@@ -146,7 +155,7 @@ class SequenceLabelling(object):
         sess.run(tf.initialize_all_variables())
       if mode == 'test':
         sess.run(train_initializer)
-        sess.run(test_initializer)
+
         X, pred, acc = sess.run([self.X, self.pred, self.accuracy])
         np.savetxt('X.txt', X, fmt='%.1f')
         np.savetxt('pred.txt', pred, fmt='%.1f')
@@ -154,6 +163,7 @@ class SequenceLabelling(object):
         print('X', X)
         print('pred', pred)
         sys.exit(0)
+
       for epoch in range(epoch_num):
         # tf.train.global_step(sess, global_step_tensor=global_step)
 
@@ -203,6 +213,7 @@ if __name__ == '__main__':
   # print('test sentences\n', [word_set[item] for line in test_sentences for item in line][:10])
   # print('test sentences index\n', test_sentences[:10])
 
+
   train_initializer, dev_initializer, _, iterator = data_iterate_with_seqlen(sentences, tags, seq_lens, 100,
                                                                              mode='test')
   test_initializer, test_iterator = test_data_iterate(sentences, 100)
@@ -213,9 +224,11 @@ if __name__ == '__main__':
   model = SequenceLabelling(num_classes=5, vocab_length=4550, word_dim=128, units=128, rnn_layer_num=1, keep_prob=0.88)
 
   # model.build(X, y, mode='train')
+
   model.build(X, y, seq_len, mode='train')
 
   model.run_epoch(train_initializer, dev_initializer, 1e-3, mode='train', save_when_acc=0.99)
+
   # model.inference(test_initializer, word_set)
 
   print('All done.')

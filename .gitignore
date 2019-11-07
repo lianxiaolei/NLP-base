@@ -200,4 +200,8 @@ model
 *.txt
 nlp_base/info_extra/baseline/dg_model
 test
+<<<<<<< HEAD
 nlp_base/nmt/dataset
+=======
+nlp_base/nmt/dataset
+>>>>>>> ae3c9e0c308b60896e52af553669897c52a0f90f

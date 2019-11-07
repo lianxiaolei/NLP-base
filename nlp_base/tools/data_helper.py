@@ -74,8 +74,8 @@ def gen_target_input(src_tuple, trg_tuple):
   # # src_input += 1
   # return (src_input, src_len), trg_label
   ((src_input, src_len), (trg_label, trg_len)) = (src_tuple, trg_tuple)
-  trg_input = tf.concat([[SOS_ID], trg_label[:-1]], axis=0)
-  return (src_input, src_len), (trg_input, trg_label, trg_len)
+  # src_input += 1
+  return (src_input, src_len), trg_label
 
 
 def gen_src_tar_dataset(src_path, tar_path, batch_size):
