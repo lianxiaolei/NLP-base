@@ -206,3 +206,4 @@ nlp_base/nmt/dataset
 nlp_base/nmt/dataset
 *.zip
 *.txt
+*.data
