@@ -223,6 +223,8 @@ def gen_train_index(fname, target_fname, md_fname):
   print('Convert word to index done.')
 
 
+"""datagrand dataset operation"""
+
 def tag2num(fname, out_fname):
   w2i_dict = {'c': 1, 'o': 2, 'b': 3, 'a': 4}
   fout = open(out_fname, 'a', encoding='utf8')
@@ -339,12 +341,12 @@ def remove_low_freq_word(locs, trg_word_fname, trg_word_cled_fname,
 
 
 if __name__ == '__main__':
-  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
-  #                '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
-  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/train.txt',
-  #                '/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt', has_tag=True)
-  # split_sentence('/home/lian/data/nlp/datagrand_info_extra/test.txt',
-  #                '/home/lian/data/nlp/datagrand_info_extra/test_sliced.txt', has_tag=False)
+  split_sentence('/home/lian/data/nlp/datagrand_info_extra/corpus.txt',
+                 '/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt')
+  split_sentence('/home/lian/data/nlp/datagrand_info_extra/train.txt',
+                 '/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt', has_tag=True)
+  split_sentence('/home/lian/data/nlp/datagrand_info_extra/test.txt',
+                 '/home/lian/data/nlp/datagrand_info_extra/test_sliced.txt', has_tag=False)
 
   # split_sentence('/Users/lianxiaohua/Data/datagrand/corpus.txt',
   #                '/Users/lianxiaohua/Data/datagrand/corpus_pretr.txt')
@@ -354,13 +356,13 @@ if __name__ == '__main__':
   #                '/Users/lianxiaohua/Data/datagrand/test_pretr.txt', has_tag=False)
   # print('Split sentence done.')
 
-  # merge_corpus(['/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt',
-  #               '/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
-  #               '/home/lian/data/nlp/datagrand_info_extra/test_sliced.txt'],
-  #              '/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt')
+  merge_corpus(['/home/lian/data/nlp/datagrand_info_extra/corpus_sliced.txt',
+                '/home/lian/data/nlp/datagrand_info_extra/train_sliced.txt',
+                '/home/lian/data/nlp/datagrand_info_extra/test_sliced.txt'],
+               '/home/lian/data/nlp/datagrand_info_extra/corpus_pretr.txt')
 
-  # gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
-  #                 '/home/lian/data/nlp/datagrand_info_extra/target.txt')
+  gen_target_data('/home/lian/data/nlp/datagrand_info_extra/train.txt',
+                  '/home/lian/data/nlp/datagrand_info_extra/target.txt')
 
   print(get_w2v_vocab('../../model/datagrand_corpus_pretrain.bin'))
 
