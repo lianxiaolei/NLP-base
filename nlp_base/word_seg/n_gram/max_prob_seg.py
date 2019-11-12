@@ -141,7 +141,7 @@ if __name__ == '__main__':
   myseg = DNASegment()
   myseg.initial_dict("count_1w.txt")
 
-  sequences = ['itisatest', 'tositdown', 'ihaveaterm', 'itoseefilm']
+  sequences = ['itisatest', 'tositdown', 'ihaveaterm', 'itoseefilm', 'choujidiao']
 
   for seq in sequences:
     seg_seq = myseg.mp_seg(seq)
