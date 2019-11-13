@@ -111,7 +111,7 @@ class DNASegment:
     seg_sequence = DELIMITER.join(word_list)
     return seg_sequence
 
-  def initial_dict(self, filename):
+  def initial_dict(self, filename, encoding='utf8'):
     """
     加载词典，为词\t词频的格式
     计算all_values
@@ -123,10 +123,10 @@ class DNASegment:
     Returns:
 
     """
-    with open(filename, 'r') as fin:
+    with open(filename, 'r', encoding=encoding) as fin:
       for line in fin.readlines():
-        line = line.strip()
-        k, v = line.split('\t')
+        # line = line.strip()
+        k, v, pos = line.split('\t')
         self.word_dict_count[k] = int(v)
 
       self.all_freq = sum(self.word_dict_count.values())
@@ -139,9 +139,10 @@ class DNASegment:
 
 if __name__ == '__main__':
   myseg = DNASegment()
-  myseg.initial_dict("count_1w.txt")
+  # myseg.initial_dict("count_1w.txt")
+  myseg.initial_dict("SogouLabDic.dic", encoding='gb18030')
 
-  sequences = ['itisatest', 'tositdown', 'ihaveaterm', 'itoseefilm', 'choujidiao']
+  sequences = ['itisatest', 'tositdown', 'ihaveaterm', '没时间解释了快开车', '开车开车开车', '我用双手成就你的梦想']
 
   for seq in sequences:
     seg_seq = myseg.mp_seg(seq)
